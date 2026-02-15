@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -132,6 +134,13 @@ struct BackendDebugReport {
     alert_check: HttpProbeStatus,
 }
 
+fn epoch_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 fn default_config_path(app: &AppHandle) -> Option<PathBuf> {
     app.path()
         .app_data_dir()
@@ -233,6 +242,40 @@ fn ensure_config(app: &AppHandle) -> Option<PathBuf> {
     Some(paths.config_path)
 }
 
+fn resolve_debug_log_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("logs").join("desktop.log"))
+}
+
+fn append_debug_log(app: &AppHandle, level: &str, message: &str) {
+    let Some(path) = resolve_debug_log_path(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[{}][{}] {}", epoch_millis(), level, message);
+    }
+}
+
+fn read_debug_log_tail(app: &AppHandle, lines: usize) -> String {
+    let Some(path) = resolve_debug_log_path(app) else {
+        return String::new();
+    };
+    let Ok(content) = fs::read_to_string(path) else {
+        return String::new();
+    };
+    let max_lines = lines.clamp(50, 5000);
+    let all_lines = content.lines().collect::<Vec<_>>();
+    if all_lines.len() <= max_lines {
+        return all_lines.join("\n");
+    }
+    all_lines[all_lines.len() - max_lines..].join("\n")
+}
+
 fn rcon_config_path(app: &AppHandle) -> Option<PathBuf> {
     let config_path = ensure_config(app)?;
     config_path.parent().map(|dir| dir.join("rcon.toml"))
@@ -256,34 +299,57 @@ fn save_rcon_config(path: &PathBuf, config: &RconConfig) -> Result<(), String> {
 
 fn spawn_backend(app: &AppHandle, state: &BackendState) {
     if std::env::var("LATTICE_BACKEND_DISABLE").ok().as_deref() == Some("1") {
+        append_debug_log(
+            app,
+            "INFO",
+            "backend spawn skipped by LATTICE_BACKEND_DISABLE=1",
+        );
         return;
     }
     if state.handle.lock().unwrap().is_some() {
+        append_debug_log(app, "INFO", "backend spawn skipped: already running");
         return;
     }
     *state.last_error.lock().unwrap() = None;
 
     let Some(config_path) = ensure_config(app) else {
         *state.last_error.lock().unwrap() = Some("config path unavailable".to_string());
+        append_debug_log(
+            app,
+            "ERROR",
+            "backend spawn failed: config path unavailable",
+        );
         eprintln!("backend start skipped: config path unavailable");
         return;
     };
+    append_debug_log(
+        app,
+        "INFO",
+        &format!(
+            "backend spawn requested with config {}",
+            config_path.display()
+        ),
+    );
 
     match lattice_backend::start_embedded(config_path) {
         Ok(handle) => {
             state.handle.lock().unwrap().replace(handle);
             *state.last_error.lock().unwrap() = None;
+            append_debug_log(app, "INFO", "backend spawn success");
         }
         Err(err) => {
             *state.last_error.lock().unwrap() = Some(err.to_string());
+            append_debug_log(app, "ERROR", &format!("backend spawn failed: {}", err));
             eprintln!("backend start failed: {err}");
         }
     }
 }
 
-fn stop_backend(state: &BackendState) {
+fn stop_backend(app: &AppHandle, state: &BackendState) {
     if let Some(handle) = state.handle.lock().unwrap().take() {
+        append_debug_log(app, "INFO", "backend stop requested");
         handle.stop();
+        append_debug_log(app, "INFO", "backend stopped");
     }
 }
 
@@ -471,10 +537,16 @@ async fn backend_debug_probe(
         )
     };
 
-    let timestamp_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|value| value.as_millis() as u64)
-        .unwrap_or(0);
+    let timestamp_ms = epoch_millis();
+
+    append_debug_log(
+        &app,
+        "DEBUG",
+        &format!(
+            "probe result live={:?} ready={:?} alert={:?}",
+            health_live.status, health_ready.status, alert_check.status
+        ),
+    );
 
     Ok(BackendDebugReport {
         timestamp_ms,
@@ -490,6 +562,18 @@ async fn backend_debug_probe(
         health_ready,
         alert_check,
     })
+}
+
+#[tauri::command]
+fn debug_log_path(app: AppHandle) -> Result<String, String> {
+    let path = resolve_debug_log_path(&app).ok_or("log path unavailable".to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn debug_log_tail(app: AppHandle, lines: Option<usize>) -> Result<String, String> {
+    let limit = lines.unwrap_or(400);
+    Ok(read_debug_log_tail(&app, limit))
 }
 
 #[cfg(target_os = "macos")]
@@ -513,12 +597,18 @@ fn backend_config_get(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn backend_config_set(app: AppHandle, content: String) -> Result<(), String> {
     let path = ensure_config(&app).ok_or("config path unavailable")?;
+    append_debug_log(
+        &app,
+        "INFO",
+        &format!("backend config write {}", path.display()),
+    );
     fs::write(&path, content).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 fn backend_restart(app: AppHandle, state: State<BackendState>) -> Result<(), String> {
-    stop_backend(&state);
+    append_debug_log(&app, "INFO", "backend restart requested");
+    stop_backend(&app, &state);
     spawn_backend(&app, &state);
     Ok(())
 }
@@ -536,7 +626,11 @@ fn rcon_config_set(app: AppHandle, config: RconConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn rcon_connect(state: State<'_, RconState>, config: RconConfig) -> Result<(), String> {
+async fn rcon_connect(
+    app: AppHandle,
+    state: State<'_, RconState>,
+    config: RconConfig,
+) -> Result<(), String> {
     let host = if config.host.trim().is_empty() {
         "127.0.0.1".to_string()
     } else {
@@ -550,15 +644,21 @@ async fn rcon_connect(state: State<'_, RconState>, config: RconConfig) -> Result
         .enable_minecraft_quirks(true)
         .connect(addr, &password)
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| {
+            let message = err.to_string();
+            append_debug_log(&app, "ERROR", &format!("rcon connect failed: {}", message));
+            message
+        })?;
     *guard = Some(conn);
+    append_debug_log(&app, "INFO", "rcon connected");
     Ok(())
 }
 
 #[tauri::command]
-async fn rcon_disconnect(state: State<'_, RconState>) -> Result<(), String> {
+async fn rcon_disconnect(app: AppHandle, state: State<'_, RconState>) -> Result<(), String> {
     let mut guard = state.0.lock().await;
     *guard = None;
+    append_debug_log(&app, "INFO", "rcon disconnected");
     Ok(())
 }
 
@@ -571,12 +671,24 @@ async fn rcon_status(state: State<'_, RconState>) -> Result<RconStatus, String> 
 }
 
 #[tauri::command]
-async fn rcon_send(state: State<'_, RconState>, command: String) -> Result<String, String> {
+async fn rcon_send(
+    app: AppHandle,
+    state: State<'_, RconState>,
+    command: String,
+) -> Result<String, String> {
     let mut guard = state.0.lock().await;
     let Some(conn) = guard.as_mut() else {
         return Err("RCON not connected".to_string());
     };
-    conn.cmd(&command).await.map_err(|err| err.to_string())
+    let result = conn.cmd(&command).await.map_err(|err| err.to_string());
+    if let Err(err) = &result {
+        append_debug_log(
+            &app,
+            "ERROR",
+            &format!("rcon send failed command={} err={}", command, err),
+        );
+    }
+    result
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -587,15 +699,18 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             let state = app.state::<BackendState>();
+            append_debug_log(&handle, "INFO", "desktop setup start");
             spawn_backend(&handle, &state);
             #[cfg(target_os = "macos")]
             refresh_macos_window_shadow(&handle);
+            append_debug_log(&handle, "INFO", "desktop setup done");
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
-                let state = window.app_handle().state::<BackendState>();
-                stop_backend(&state);
+                let app_handle = window.app_handle();
+                let state = app_handle.state::<BackendState>();
+                stop_backend(&app_handle, &state);
             }
         })
         .plugin(tauri_plugin_opener::init())
@@ -605,6 +720,8 @@ pub fn run() {
             backend_restart,
             backend_runtime_status,
             backend_debug_probe,
+            debug_log_path,
+            debug_log_tail,
             rcon_config_get,
             rcon_config_set,
             rcon_connect,

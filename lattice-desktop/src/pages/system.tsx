@@ -57,6 +57,9 @@ export function System() {
     React.useState<BackendRuntimeStatus | null>(null);
   const [debugLoading, setDebugLoading] = React.useState(false);
   const [debugReport, setDebugReport] = React.useState<BackendDebugReport | null>(null);
+  const [debugLogLoading, setDebugLogLoading] = React.useState(false);
+  const [debugLogPath, setDebugLogPath] = React.useState("");
+  const [debugLogs, setDebugLogs] = React.useState("");
 
   React.useEffect(() => {
     setBaseUrl(settings.baseUrl);
@@ -86,10 +89,38 @@ export function System() {
     }
   }, []);
 
+  const loadDebugPath = React.useCallback(async () => {
+    try {
+      const path = await invoke<string>("debug_log_path");
+      setDebugLogPath(path);
+    } catch {
+      setDebugLogPath("");
+    }
+  }, []);
+
+  const loadDebugLogs = React.useCallback(async () => {
+    try {
+      setDebugLogLoading(true);
+      const logs = await invoke<string>("debug_log_tail", { lines: 400 });
+      setDebugLogs(logs);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "读取日志失败");
+    } finally {
+      setDebugLogLoading(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     loadConfig();
     loadRuntimeStatus();
-  }, [loadConfig, loadRuntimeStatus]);
+    loadDebugPath();
+  }, [loadConfig, loadRuntimeStatus, loadDebugPath]);
+
+  React.useEffect(() => {
+    if (debugMode === "on") {
+      void loadDebugLogs();
+    }
+  }, [debugMode, loadDebugLogs]);
 
   function saveConnection() {
     updateSettings({
@@ -106,11 +137,21 @@ export function System() {
       setDebugLoading(true);
       const report = await invoke<BackendDebugReport>("backend_debug_probe");
       setDebugReport(report);
+      await loadDebugLogs();
       toast.success("诊断完成");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "诊断失败");
     } finally {
       setDebugLoading(false);
+    }
+  }
+
+  async function copyDebugLogs() {
+    try {
+      await navigator.clipboard.writeText(debugLogs || "");
+      toast.success("日志已复制");
+    } catch {
+      toast.error("复制失败");
     }
   }
 
@@ -228,29 +269,54 @@ export function System() {
         <motion.section className="section" variants={variants.sectionReveal}>
           <div className="section-header">
             <div>
-              <div className="section-title">Debug 诊断</div>
+              <div className="section-title">Debug 模式</div>
               <div className="section-meta">
-                一键检测嵌入后端、ClickHouse、health/ready/alert 接口连通性。
+                常规日志 + 一键自检。日志文件: {debugLogPath || "不可用"}
               </div>
             </div>
-            <Button
-              variant="secondary"
-              onClick={runDebugProbe}
-              disabled={debugLoading}
-            >
-              {debugLoading ? "诊断中..." : "运行诊断"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={runDebugProbe}
+                disabled={debugLoading}
+              >
+                {debugLoading ? "诊断中..." : "运行自检"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={loadDebugLogs}
+                disabled={debugLogLoading}
+              >
+                {debugLogLoading ? "刷新中..." : "刷新日志"}
+              </Button>
+              <Button variant="secondary" onClick={copyDebugLogs}>
+                复制日志
+              </Button>
+            </div>
           </div>
 
-          <Textarea
-            className="min-h-[280px] font-mono text-xs"
-            readOnly
-            value={
-              debugReport
-                ? JSON.stringify(debugReport, null, 2)
-                : "尚未运行诊断。点击“运行诊断”后会在这里显示完整结果。"
-            }
-          />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-2">
+              <Label>运行日志（最近 400 行）</Label>
+              <Textarea
+                className="min-h-[320px] font-mono text-xs"
+                readOnly
+                value={debugLogs || "暂无日志。"}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>自检结果</Label>
+              <Textarea
+                className="min-h-[320px] font-mono text-xs"
+                readOnly
+                value={
+                  debugReport
+                    ? JSON.stringify(debugReport, null, 2)
+                    : "尚未运行自检。点击“运行自检”查看连通性结果。"
+                }
+              />
+            </div>
+          </div>
         </motion.section>
       ) : null}
 
