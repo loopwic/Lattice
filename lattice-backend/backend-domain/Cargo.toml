@@ -1,0 +1,20 @@
+[package]
+name = "backend-domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Domain layer has MINIMAL external dependencies
+# Only for serialization and basic utilities
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+clickhouse = { workspace = true }
+
+# Async trait for repository ports
+async-trait = { workspace = true }

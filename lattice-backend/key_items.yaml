@@ -1,0 +1,6 @@
+- item_id: "minecraft:nether_star"
+  threshold: 1
+  risk_level: "HIGH"
+- item_id: "minecraft:diamond"
+  threshold: 64
+  risk_level: "MEDIUM"

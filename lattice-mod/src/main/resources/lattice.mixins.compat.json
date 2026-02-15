@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.lattice.mixin.compat",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "Rs2RootStorageMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

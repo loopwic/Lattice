@@ -1,0 +1,271 @@
+use clickhouse::Row;
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct KeyItemRule {
+    pub item_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_per_10m: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<u8>,
+}
+
+impl KeyItemRule {
+    pub fn effective_threshold(&self) -> u64 {
+        self.threshold
+            .or(self.max_per_10m)
+            .unwrap_or_default()
+    }
+
+    pub fn effective_risk_level(&self) -> String {
+        if let Some(level) = &self.risk_level {
+            let upper = level.trim().to_uppercase();
+            if upper.is_empty() {
+                return "MEDIUM".to_string();
+            }
+            return upper;
+        }
+        if let Some(weight) = self.weight {
+            if weight >= 8 {
+                return "HIGH".to_string();
+            }
+        }
+        "MEDIUM".to_string()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KeyItemRuleApi {
+    pub item_id: String,
+    pub threshold: u64,
+    pub risk_level: String,
+}
+
+impl KeyItemRuleApi {
+    pub fn normalized(&self) -> Self {
+        Self {
+            item_id: self.item_id.trim().to_lowercase(),
+            threshold: self.threshold,
+            risk_level: self.risk_level.trim().to_uppercase(),
+        }
+    }
+}
+
+impl From<&KeyItemRule> for KeyItemRuleApi {
+    fn from(rule: &KeyItemRule) -> Self {
+        Self {
+            item_id: rule.item_id.clone(),
+            threshold: rule.effective_threshold(),
+            risk_level: rule.effective_risk_level(),
+        }
+    }
+}
+
+impl From<KeyItemRuleApi> for KeyItemRule {
+    fn from(rule: KeyItemRuleApi) -> Self {
+        Self {
+            item_id: rule.item_id,
+            threshold: Some(rule.threshold),
+            max_per_10m: None,
+            risk_level: Some(rule.risk_level),
+            weight: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct IngestEvent {
+    pub event_id: String,
+    pub event_time: i64,
+    pub server_id: Option<String>,
+    pub event_type: String,
+    pub player_uuid: Option<String>,
+    pub player_name: Option<String>,
+    pub item_id: String,
+    pub count: i64,
+    pub nbt_hash: Option<String>,
+    pub origin_id: Option<String>,
+    pub origin_type: Option<String>,
+    pub origin_ref: Option<String>,
+    pub source_type: Option<String>,
+    pub source_ref: Option<String>,
+    pub storage_mod: Option<String>,
+    pub storage_id: Option<String>,
+    pub actor_type: Option<String>,
+    pub trace_id: Option<String>,
+    pub item_fingerprint: Option<String>,
+    pub dim: Option<String>,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub z: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct IngestEnvelope {
+    pub schema_version: String,
+    pub server_id: Option<String>,
+    pub events: Vec<IngestEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Row)]
+pub struct ItemEventRow {
+    #[serde(with = "clickhouse::serde::time::datetime64::millis")]
+    pub event_time: OffsetDateTime,
+    pub event_id: String,
+    pub server_id: String,
+    pub event_type: String,
+    pub player_uuid: String,
+    pub player_name: String,
+    pub item_id: String,
+    pub count: i64,
+    pub origin_id: String,
+    pub origin_type: String,
+    pub origin_ref: String,
+    pub source_type: String,
+    pub source_ref: String,
+    pub storage_mod: String,
+    pub storage_id: String,
+    pub actor_type: String,
+    pub trace_id: String,
+    pub item_fingerprint: String,
+    pub dim: String,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub z: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
+pub struct AnomalyRow {
+    #[serde(with = "clickhouse::serde::time::datetime64::millis")]
+    pub event_time: OffsetDateTime,
+    pub server_id: String,
+    pub player_uuid: String,
+    pub player_name: String,
+    pub item_id: String,
+    pub count: i64,
+    pub risk_level: String,
+    pub rule_id: String,
+    pub reason: String,
+    pub evidence_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferRecord {
+    pub time_ms: i64,
+    pub player_uuid: String,
+    pub player_name: String,
+    pub item_fingerprint: String,
+    pub count: i64,
+    pub storage_mod: String,
+    pub storage_id: String,
+    pub trace_id: String,
+}
+
+#[derive(Default, Clone)]
+pub struct ReportSummary {
+    pub high: u64,
+    pub medium: u64,
+    pub low: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AnomalyQuery {
+    pub date: Option<String>,
+    pub player: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ItemRegistryEntry {
+    pub item_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub names: Option<std::collections::HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ItemRegistryPayload {
+    pub items: Vec<ItemRegistryEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ItemRegistryQuery {
+    pub query: Option<String>,
+    pub limit: Option<usize>,
+    pub lang: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ItemRegistryUpdateQuery {
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TaskProgress {
+    pub running: bool,
+    pub total: u64,
+    pub done: u64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TaskStatus {
+    pub audit: TaskProgress,
+    pub scan: TaskProgress,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskProgressUpdate {
+    pub task: String,
+    pub running: bool,
+    pub total: u64,
+    pub done: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StorageScanQuery {
+    pub date: Option<String>,
+    pub item: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Row)]
+pub struct StorageScanEventRow {
+    #[serde(with = "clickhouse::serde::time::datetime64::millis")]
+    pub event_time: OffsetDateTime,
+    pub item_id: String,
+    pub count: i64,
+    pub storage_mod: String,
+    pub storage_id: String,
+    pub dim: String,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub z: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Row)]
+pub struct StorageScanRow {
+    #[serde(with = "clickhouse::serde::time::datetime64::millis")]
+    pub event_time: OffsetDateTime,
+    pub item_id: String,
+    pub count: i64,
+    pub storage_mod: String,
+    pub storage_id: String,
+    pub dim: String,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub z: Option<i32>,
+    pub rule_id: String,
+    pub threshold: u64,
+    pub risk_level: String,
+    pub reason: String,
+}

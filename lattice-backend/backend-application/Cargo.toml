@@ -1,0 +1,24 @@
+[package]
+name = "backend-application"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Application layer depends ONLY on domain
+backend-domain = { path = "../backend-domain" }
+
+# Async traits
+async-trait = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Serialization (for DTOs)
+serde = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+
+# Logging
+tracing = { workspace = true }

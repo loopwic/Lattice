@@ -1,0 +1,47 @@
+[package]
+name = "backend-infrastructure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Infrastructure implements domain and application ports
+backend-domain = { path = "../backend-domain" }
+backend-application = { path = "../backend-application" }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Database
+clickhouse = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true }
+
+# WebSocket
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+
+# File I/O
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }
+
+# Compression
+flate2 = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+time = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }

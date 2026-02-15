@@ -1,0 +1,30 @@
+.DS_Store
+**/.DS_Store
+
+# Node / frontend
+**/node_modules/
+**/dist/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust
+**/target/
+
+# Java / Gradle
+**/.gradle/
+**/build/
+**/out/
+**/bin/
+
+# IDE
+**/.idea/
+**/.vscode/
+
+# Local env/logs
+**/*.log
+*.tmp
+
+# Runtime data
+lattice-backend/data/

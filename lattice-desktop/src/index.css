@@ -1,0 +1,295 @@
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: hsl(240 4% 97%);
+  --foreground: hsl(240 6% 8%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(240 6% 8%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(240 6% 8%);
+  --primary: hsl(240 6% 12%);
+  --primary-foreground: hsl(240 4% 97%);
+  --secondary: hsl(240 8% 93%);
+  --secondary-foreground: hsl(240 6% 12%);
+  --muted: hsl(240 8% 93%);
+  --muted-foreground: hsl(240 4% 38%);
+  --accent: hsl(240 8% 92%);
+  --accent-foreground: hsl(240 6% 10%);
+  --destructive: hsl(0 0% 28%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(240 6% 86%);
+  --input: hsl(240 6% 86%);
+  --ring: hsl(240 6% 25%);
+  --chart-1: hsl(240 6% 16%);
+  --chart-2: hsl(240 4% 32%);
+  --chart-3: hsl(240 4% 48%);
+  --chart-4: hsl(240 4% 62%);
+  --chart-5: hsl(240 4% 76%);
+  --sidebar: hsl(240 8% 95%);
+  --sidebar-foreground: hsl(240 6% 10%);
+  --sidebar-primary: hsl(240 6% 12%);
+  --sidebar-primary-foreground: hsl(240 4% 97%);
+  --sidebar-accent: hsl(240 8% 91%);
+  --sidebar-accent-foreground: hsl(240 6% 10%);
+  --sidebar-border: hsl(240 6% 86%);
+  --sidebar-ring: hsl(240 6% 25%);
+
+  --font-sans:
+    "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC",
+    "Segoe UI", sans-serif;
+  --font-serif:
+    "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC",
+    sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", monospace;
+
+  --radius: 0.75rem;
+  --tracking-normal: -0.01em;
+  --spacing: 0.25rem;
+}
+
+.dark {
+  --background: hsl(240 3% 6%);
+  --foreground: hsl(240 5% 96%);
+  --card: hsl(240 6% 9%);
+  --card-foreground: hsl(240 5% 96%);
+  --popover: hsl(240 6% 9%);
+  --popover-foreground: hsl(240 5% 96%);
+  --primary: hsl(240 4% 97%);
+  --primary-foreground: hsl(240 6% 8%);
+  --secondary: hsl(240 8% 12%);
+  --secondary-foreground: hsl(240 4% 92%);
+  --muted: hsl(240 8% 12%);
+  --muted-foreground: hsl(240 4% 68%);
+  --accent: hsl(240 8% 15%);
+  --accent-foreground: hsl(240 4% 94%);
+  --destructive: hsl(0 0% 66%);
+  --destructive-foreground: hsl(0 0% 10%);
+  --border: hsl(240 6% 20%);
+  --input: hsl(240 6% 20%);
+  --ring: hsl(240 5% 82%);
+  --chart-1: hsl(240 5% 94%);
+  --chart-2: hsl(240 4% 78%);
+  --chart-3: hsl(240 4% 62%);
+  --chart-4: hsl(240 4% 46%);
+  --chart-5: hsl(240 4% 32%);
+  --sidebar: hsl(240 6% 8%);
+  --sidebar-foreground: hsl(240 5% 96%);
+  --sidebar-primary: hsl(240 5% 96%);
+  --sidebar-primary-foreground: hsl(240 6% 8%);
+  --sidebar-accent: hsl(240 8% 14%);
+  --sidebar-accent-foreground: hsl(240 4% 94%);
+  --sidebar-border: hsl(240 6% 20%);
+  --sidebar-ring: hsl(240 5% 82%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
+  --tracking-tight: calc(var(--tracking-normal) - 0.025em);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: calc(var(--tracking-normal) + 0.03em);
+  --tracking-wider: calc(var(--tracking-normal) + 0.07em);
+  --tracking-widest: calc(var(--tracking-normal) + 0.11em);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  letter-spacing: var(--tracking-normal);
+  color: var(--foreground);
+  background: var(--background);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 48%, transparent)
+    transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 40%,
+    transparent
+  );
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 60%,
+    transparent
+  );
+}
+
+@layer components {
+  .shell-bg {
+    background: var(--background);
+  }
+
+  .panel-muted {
+    background: color-mix(in oklab, var(--muted) 72%, transparent);
+  }
+
+  .hairline {
+    border-color: color-mix(in oklab, var(--border) 64%, transparent);
+  }
+
+  .section {
+    @apply px-1 py-1;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .section-stack > * + * {
+    border-top: 1px solid color-mix(in oklab, var(--border) 62%, transparent);
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+  }
+
+  .section-header {
+    @apply mb-4 flex flex-wrap items-start justify-between gap-4;
+  }
+
+  .section-title {
+    @apply text-base font-semibold text-foreground;
+    letter-spacing: -0.015em;
+  }
+
+  .section-meta {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .section-subtitle {
+    @apply text-[11px] font-semibold tracking-[0.06em] text-muted-foreground;
+  }
+
+  .kbd-chip {
+    @apply inline-flex items-center rounded-md px-2 py-1 text-[10px] font-medium;
+    border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+    background: color-mix(in oklab, var(--muted) 62%, transparent);
+    color: color-mix(
+      in oklab,
+      var(--muted-foreground) 78%,
+      var(--foreground) 22%
+    );
+    letter-spacing: 0.02em;
+  }
+
+  .glass-overlay {
+    background: color-mix(in oklab, var(--background) 72%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .status-liquid-high {
+    background: color-mix(in oklab, var(--foreground) 24%, transparent);
+    color: color-mix(in oklab, var(--foreground) 96%, var(--background) 4%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 36%, transparent);
+  }
+
+  .status-liquid-medium {
+    background: color-mix(in oklab, var(--foreground) 16%, transparent);
+    color: color-mix(in oklab, var(--foreground) 88%, var(--background) 12%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 28%, transparent);
+  }
+
+  .status-liquid-low {
+    background: color-mix(in oklab, var(--foreground) 10%, transparent);
+    color: color-mix(in oklab, var(--foreground) 82%, var(--background) 18%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
+  }
+
+  .status-liquid-ok {
+    background: color-mix(in oklab, var(--foreground) 14%, transparent);
+    color: color-mix(in oklab, var(--foreground) 90%, var(--background) 10%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 26%, transparent);
+  }
+
+  .status-liquid-down {
+    background: color-mix(in oklab, var(--foreground) 28%, transparent);
+    color: color-mix(in oklab, var(--foreground) 97%, var(--background) 3%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 40%, transparent);
+  }
+
+  .status-liquid-info {
+    background: color-mix(in oklab, var(--foreground) 10%, transparent);
+    color: color-mix(in oklab, var(--foreground) 80%, var(--background) 20%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 20%, transparent);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/60;
+  }
+
+  body {
+    @apply text-foreground antialiased;
+  }
+}

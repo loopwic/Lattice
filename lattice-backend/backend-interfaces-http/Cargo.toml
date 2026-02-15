@@ -1,0 +1,30 @@
+[package]
+name = "backend-interfaces-http"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Interfaces depend only on application layer (calls commands/queries)
+backend-application = { path = "../backend-application" }
+backend-domain = { path = "../backend-domain" }
+
+# HTTP framework
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+flate2 = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Async
+async-trait = { workspace = true }
