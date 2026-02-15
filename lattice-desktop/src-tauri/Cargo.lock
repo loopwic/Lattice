@@ -2346,6 +2346,7 @@ version = "0.1.0"
 dependencies = [
  "backend-bootstrap",
  "rcon",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",

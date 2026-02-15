@@ -16,6 +16,30 @@ type BackendRuntimeStatus = {
   last_error?: string | null;
 };
 
+type ProbeStatus = {
+  target?: string;
+  url?: string;
+  ok: boolean;
+  status?: number | null;
+  error?: string | null;
+  body?: string;
+};
+
+type BackendDebugReport = {
+  timestamp_ms: number;
+  runtime: BackendRuntimeStatus;
+  config_path?: string | null;
+  bind_addr?: string | null;
+  clickhouse_url?: string | null;
+  api_token_present: boolean;
+  probe_base_url?: string | null;
+  backend_tcp: ProbeStatus;
+  clickhouse_tcp: ProbeStatus;
+  health_live: ProbeStatus;
+  health_ready: ProbeStatus;
+  alert_check: ProbeStatus;
+};
+
 export function System() {
   const { settings, updateSettings } = useSettings();
   const { theme, setTheme } = useTheme();
@@ -24,17 +48,21 @@ export function System() {
   const [baseUrl, setBaseUrl] = React.useState(settings.baseUrl);
   const [apiToken, setApiToken] = React.useState(settings.apiToken);
   const [lang, setLang] = React.useState(settings.lang || "zh_cn");
+  const [debugMode, setDebugMode] = React.useState(settings.debugMode ? "on" : "off");
 
   const [content, setContent] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [backendRuntime, setBackendRuntime] =
     React.useState<BackendRuntimeStatus | null>(null);
+  const [debugLoading, setDebugLoading] = React.useState(false);
+  const [debugReport, setDebugReport] = React.useState<BackendDebugReport | null>(null);
 
   React.useEffect(() => {
     setBaseUrl(settings.baseUrl);
     setApiToken(settings.apiToken);
     setLang(settings.lang || "zh_cn");
+    setDebugMode(settings.debugMode ? "on" : "off");
   }, [settings]);
 
   const loadConfig = React.useCallback(async () => {
@@ -68,8 +96,22 @@ export function System() {
       baseUrl: baseUrl.trim(),
       apiToken: apiToken.trim(),
       lang,
+      debugMode: debugMode === "on",
     });
     toast.success("连接设置已保存");
+  }
+
+  async function runDebugProbe() {
+    try {
+      setDebugLoading(true);
+      const report = await invoke<BackendDebugReport>("backend_debug_probe");
+      setDebugReport(report);
+      toast.success("诊断完成");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "诊断失败");
+    } finally {
+      setDebugLoading(false);
+    }
   }
 
   async function saveConfig(restart: boolean) {
@@ -166,8 +208,51 @@ export function System() {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="grid gap-2">
+            <Label>调试模式</Label>
+            <Select value={debugMode} onValueChange={setDebugMode}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择模式" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">关闭</SelectItem>
+                <SelectItem value="on">开启</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </motion.section>
+
+      {debugMode === "on" ? (
+        <motion.section className="section" variants={variants.sectionReveal}>
+          <div className="section-header">
+            <div>
+              <div className="section-title">Debug 诊断</div>
+              <div className="section-meta">
+                一键检测嵌入后端、ClickHouse、health/ready/alert 接口连通性。
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={runDebugProbe}
+              disabled={debugLoading}
+            >
+              {debugLoading ? "诊断中..." : "运行诊断"}
+            </Button>
+          </div>
+
+          <Textarea
+            className="min-h-[280px] font-mono text-xs"
+            readOnly
+            value={
+              debugReport
+                ? JSON.stringify(debugReport, null, 2)
+                : "尚未运行诊断。点击“运行诊断”后会在这里显示完整结果。"
+            }
+          />
+        </motion.section>
+      ) : null}
 
       <motion.section className="section" variants={variants.sectionReveal}>
         <div className="section-header">

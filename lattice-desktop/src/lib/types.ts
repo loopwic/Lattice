@@ -68,4 +68,5 @@ export type Settings = {
   baseUrl: string;
   apiToken: string;
   lang: string;
+  debugMode: boolean;
 };

@@ -6,6 +6,7 @@ export const defaultSettings: Settings = {
   baseUrl: "http://127.0.0.1:3234",
   apiToken: "",
   lang: "zh_cn",
+  debugMode: false,
 };
 
 export function loadSettings(): Settings {
@@ -19,6 +20,10 @@ export function loadSettings(): Settings {
       baseUrl: parsed.baseUrl || defaultSettings.baseUrl,
       apiToken: parsed.apiToken || parsed.apiKey || "",
       lang: parsed.lang || defaultSettings.lang,
+      debugMode:
+        typeof parsed.debugMode === "boolean"
+          ? parsed.debugMode
+          : defaultSettings.debugMode,
     };
   } catch {
     return defaultSettings;

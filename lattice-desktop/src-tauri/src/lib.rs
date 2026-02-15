@@ -5,12 +5,13 @@ use std::sync::Mutex;
 #[cfg(target_os = "macos")]
 use std::time::Duration;
 
+use lattice_backend::BackendHandle;
 use rcon::Connection;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager, State, WindowEvent};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex as AsyncMutex;
-use tauri::{AppHandle, Manager, State, WindowEvent};
-use lattice_backend::BackendHandle;
 
 const DEFAULT_CONFIG_TOML_TEMPLATE: &str = r#"
 bind_addr = "127.0.0.1:3234"
@@ -99,6 +100,38 @@ struct BackendRuntimeStatus {
     last_error: Option<String>,
 }
 
+#[derive(Serialize)]
+struct TcpProbeStatus {
+    target: String,
+    ok: bool,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct HttpProbeStatus {
+    url: String,
+    ok: bool,
+    status: Option<u16>,
+    body: String,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BackendDebugReport {
+    timestamp_ms: u64,
+    runtime: BackendRuntimeStatus,
+    config_path: Option<String>,
+    bind_addr: Option<String>,
+    clickhouse_url: Option<String>,
+    api_token_present: bool,
+    probe_base_url: Option<String>,
+    backend_tcp: TcpProbeStatus,
+    clickhouse_tcp: TcpProbeStatus,
+    health_live: HttpProbeStatus,
+    health_ready: HttpProbeStatus,
+    alert_check: HttpProbeStatus,
+}
+
 fn default_config_path(app: &AppHandle) -> Option<PathBuf> {
     app.path()
         .app_data_dir()
@@ -147,15 +180,17 @@ fn patch_legacy_relative_paths(paths: &RuntimePaths) {
     };
 
     let mut changed = false;
-    let patch_path = |key: &str, target: &Path, table: &mut toml::value::Table, changed: &mut bool| {
-        match table.get(key).and_then(|v| v.as_str()) {
+    let patch_path =
+        |key: &str, target: &Path, table: &mut toml::value::Table, changed: &mut bool| match table
+            .get(key)
+            .and_then(|v| v.as_str())
+        {
             Some(current) if !is_relative_like_path(current) => {}
             _ => {
                 table.insert(key.to_string(), toml::Value::String(to_toml_path(target)));
                 *changed = true;
             }
-        }
-    };
+        };
 
     patch_path("report_dir", &paths.report_dir, table, &mut changed);
     patch_path("key_items_path", &paths.key_items_path, table, &mut changed);
@@ -200,9 +235,7 @@ fn ensure_config(app: &AppHandle) -> Option<PathBuf> {
 
 fn rcon_config_path(app: &AppHandle) -> Option<PathBuf> {
     let config_path = ensure_config(app)?;
-    config_path
-        .parent()
-        .map(|dir| dir.join("rcon.toml"))
+    config_path.parent().map(|dir| dir.join("rcon.toml"))
 }
 
 fn load_rcon_config(path: &PathBuf) -> Result<RconConfig, String> {
@@ -222,11 +255,7 @@ fn save_rcon_config(path: &PathBuf, config: &RconConfig) -> Result<(), String> {
 }
 
 fn spawn_backend(app: &AppHandle, state: &BackendState) {
-    if std::env::var("LATTICE_BACKEND_DISABLE")
-        .ok()
-        .as_deref()
-        == Some("1")
-    {
+    if std::env::var("LATTICE_BACKEND_DISABLE").ok().as_deref() == Some("1") {
         return;
     }
     if state.handle.lock().unwrap().is_some() {
@@ -258,6 +287,110 @@ fn stop_backend(state: &BackendState) {
     }
 }
 
+fn truncate_body(body: String) -> String {
+    const MAX_BODY_CHARS: usize = 800;
+    if body.chars().count() <= MAX_BODY_CHARS {
+        return body;
+    }
+    let truncated = body.chars().take(MAX_BODY_CHARS).collect::<String>();
+    format!("{truncated}...(truncated)")
+}
+
+fn parse_config_string(value: &toml::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|raw| raw.as_str())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn parse_target_from_url(url_text: &str) -> Option<String> {
+    let parsed = Url::parse(url_text).ok()?;
+    let host = parsed.host_str()?.to_string();
+    let port = parsed.port_or_known_default()?;
+    Some(format!("{host}:{port}"))
+}
+
+async fn probe_tcp(target: Option<&str>, default_error: &str) -> TcpProbeStatus {
+    let Some(target_text) = target
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return TcpProbeStatus {
+            target: "-".to_string(),
+            ok: false,
+            error: Some(default_error.to_string()),
+        };
+    };
+
+    let connect_fut = TcpStream::connect(target_text.to_string());
+    match tokio::time::timeout(tokio::time::Duration::from_secs(3), connect_fut).await {
+        Ok(Ok(_)) => TcpProbeStatus {
+            target: target_text.to_string(),
+            ok: true,
+            error: None,
+        },
+        Ok(Err(err)) => TcpProbeStatus {
+            target: target_text.to_string(),
+            ok: false,
+            error: Some(err.to_string()),
+        },
+        Err(_) => TcpProbeStatus {
+            target: target_text.to_string(),
+            ok: false,
+            error: Some("connect timeout".to_string()),
+        },
+    }
+}
+
+async fn probe_http(
+    client: &Client,
+    url: String,
+    token: Option<&str>,
+    with_auth: bool,
+) -> HttpProbeStatus {
+    let mut request = client.get(&url);
+    if with_auth {
+        if let Some(value) = token.map(|v| v.trim()).filter(|v| !v.is_empty()) {
+            request = request.bearer_auth(value);
+        }
+    }
+
+    match request.send().await {
+        Ok(response) => {
+            let status = response.status();
+            let body = match response.text().await {
+                Ok(text) => truncate_body(text),
+                Err(err) => format!("read body failed: {err}"),
+            };
+            HttpProbeStatus {
+                url,
+                ok: status.is_success(),
+                status: Some(status.as_u16()),
+                body,
+                error: None,
+            }
+        }
+        Err(err) => HttpProbeStatus {
+            url,
+            ok: false,
+            status: None,
+            body: String::new(),
+            error: Some(err.to_string()),
+        },
+    }
+}
+
+fn missing_http_probe(path: &str, reason: &str) -> HttpProbeStatus {
+    HttpProbeStatus {
+        url: path.to_string(),
+        ok: false,
+        status: None,
+        body: String::new(),
+        error: Some(reason.to_string()),
+    }
+}
+
 #[tauri::command]
 fn backend_runtime_status(state: State<BackendState>) -> BackendRuntimeStatus {
     let running = state.handle.lock().unwrap().is_some();
@@ -266,6 +399,97 @@ fn backend_runtime_status(state: State<BackendState>) -> BackendRuntimeStatus {
         running,
         last_error,
     }
+}
+
+#[tauri::command]
+async fn backend_debug_probe(
+    app: AppHandle,
+    state: State<'_, BackendState>,
+) -> Result<BackendDebugReport, String> {
+    let runtime = BackendRuntimeStatus {
+        running: state.handle.lock().unwrap().is_some(),
+        last_error: state.last_error.lock().unwrap().clone(),
+    };
+
+    let config_path = ensure_config(&app).ok_or("config path unavailable".to_string())?;
+    let content = fs::read_to_string(&config_path).map_err(|err| err.to_string())?;
+    let parsed = content
+        .parse::<toml::Value>()
+        .map_err(|err| err.to_string())?;
+
+    let bind_addr = parse_config_string(&parsed, "bind_addr");
+    let clickhouse_url = parse_config_string(&parsed, "clickhouse_url");
+    let public_base_url = parse_config_string(&parsed, "public_base_url");
+    let api_token = parse_config_string(&parsed, "api_token");
+    let api_token_present = api_token
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+
+    let backend_tcp = probe_tcp(bind_addr.as_deref(), "missing bind_addr").await;
+    let clickhouse_target = clickhouse_url.as_deref().and_then(parse_target_from_url);
+    let clickhouse_tcp = probe_tcp(clickhouse_target.as_deref(), "missing clickhouse_url").await;
+
+    let probe_base_url = public_base_url
+        .or_else(|| bind_addr.as_ref().map(|value| format!("http://{value}")))
+        .map(|value| value.trim_end_matches('/').to_string());
+
+    let client = Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let (health_live, health_ready, alert_check) = if let Some(base_url) = &probe_base_url {
+        let live = probe_http(
+            &client,
+            format!("{base_url}/v2/ops/health/live"),
+            api_token.as_deref(),
+            false,
+        )
+        .await;
+        let ready = probe_http(
+            &client,
+            format!("{base_url}/v2/ops/health/ready"),
+            api_token.as_deref(),
+            false,
+        )
+        .await;
+        let alert = probe_http(
+            &client,
+            format!("{base_url}/v2/ops/alert-target/check"),
+            api_token.as_deref(),
+            true,
+        )
+        .await;
+        (live, ready, alert)
+    } else {
+        (
+            missing_http_probe("/v2/ops/health/live", "missing probe base url"),
+            missing_http_probe("/v2/ops/health/ready", "missing probe base url"),
+            missing_http_probe("/v2/ops/alert-target/check", "missing probe base url"),
+        )
+    };
+
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0);
+
+    Ok(BackendDebugReport {
+        timestamp_ms,
+        runtime,
+        config_path: Some(config_path.to_string_lossy().to_string()),
+        bind_addr,
+        clickhouse_url,
+        api_token_present,
+        probe_base_url,
+        backend_tcp,
+        clickhouse_tcp,
+        health_live,
+        health_ready,
+        alert_check,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -380,6 +604,7 @@ pub fn run() {
             backend_config_set,
             backend_restart,
             backend_runtime_status,
+            backend_debug_probe,
             rcon_config_get,
             rcon_config_set,
             rcon_connect,
