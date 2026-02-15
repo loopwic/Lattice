@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use clickhouse::Client;
 use tokio::sync::{Mutex, RwLock};
+use tracing::warn;
 
 use backend_application::{AppState, Metrics};
 use backend_domain::{Analyzer, ConfigRepository, TaskStatus};
@@ -34,7 +35,9 @@ impl AppContext {
             clickhouse,
             db_config.clickhouse_database.clone(),
         ));
-        repo.ensure_schema().await?;
+        if let Err(err) = repo.ensure_schema().await {
+            warn!("clickhouse schema ensure failed at startup: {}", err);
+        }
 
         let config_repo = Arc::new(ConfigFileRepository::new());
         let key_rules = config_repo

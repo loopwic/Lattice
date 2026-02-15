@@ -1,5 +1,7 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::Router;
+use std::sync::mpsc;
+use std::time::Duration as StdDuration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tower_http::cors::CorsLayer;
@@ -66,6 +68,7 @@ pub fn start_embedded(config_path: impl AsRef<std::path::Path>) -> Result<Backen
     );
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let (startup_tx, startup_rx) = mpsc::channel::<std::result::Result<(), String>>();
     let worker = std::thread::Builder::new()
         .name("lattice-backend".to_string())
         .spawn(move || {
@@ -76,33 +79,78 @@ pub fn start_embedded(config_path: impl AsRef<std::path::Path>) -> Result<Backen
             {
                 Ok(runtime) => runtime,
                 Err(err) => {
+                    let _ = startup_tx.send(Err(format!(
+                        "embedded backend runtime init failed: {}",
+                        err
+                    )));
                     eprintln!("embedded backend runtime init failed: {err}");
                     return;
                 }
             };
 
             runtime.block_on(async move {
-                if let Err(err) = run_embedded_with_shutdown(shutdown_rx).await {
+                if let Err(err) = run_embedded_with_shutdown(shutdown_rx, startup_tx).await {
                     eprintln!("embedded backend exited: {err}");
                 }
             });
         })?;
 
-    Ok(BackendHandle {
-        shutdown_tx: Some(shutdown_tx),
-        worker: Some(worker),
-    })
+    match startup_rx.recv_timeout(StdDuration::from_secs(10)) {
+        Ok(Ok(())) => Ok(BackendHandle {
+            shutdown_tx: Some(shutdown_tx),
+            worker: Some(worker),
+        }),
+        Ok(Err(message)) => {
+            let _ = shutdown_tx.send(());
+            let _ = worker.join();
+            Err(anyhow!(message))
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            let _ = shutdown_tx.send(());
+            let _ = worker.join();
+            Err(anyhow!("embedded backend startup timeout"))
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            let _ = shutdown_tx.send(());
+            let _ = worker.join();
+            Err(anyhow!("embedded backend startup channel disconnected"))
+        }
+    }
 }
 
-async fn run_embedded_with_shutdown(mut shutdown_rx: oneshot::Receiver<()>) -> Result<()> {
-    let context = AppContext::new().await?;
+async fn run_embedded_with_shutdown(
+    mut shutdown_rx: oneshot::Receiver<()>,
+    startup_tx: mpsc::Sender<std::result::Result<(), String>>,
+) -> Result<()> {
+    let context = match AppContext::new().await {
+        Ok(context) => context,
+        Err(err) => {
+            let _ = startup_tx.send(Err(format!("context init failed: {}", err)));
+            return Err(err);
+        }
+    };
     let state = context.state;
 
     tokio::spawn(schedule_reports(state.clone()));
 
     let app = build_router_with_layers(state.clone());
-    let addr: std::net::SocketAddr = state.config.bind_addr.parse()?;
-    let listener = TcpListener::bind(addr).await?;
+    let addr: std::net::SocketAddr = match state.config.bind_addr.parse() {
+        Ok(addr) => addr,
+        Err(err) => {
+            let message = format!("invalid bind_addr {}: {}", state.config.bind_addr, err);
+            let _ = startup_tx.send(Err(message.clone()));
+            return Err(anyhow!(message));
+        }
+    };
+    let listener = match TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(err) => {
+            let message = format!("failed to bind {}: {}", addr, err);
+            let _ = startup_tx.send(Err(message.clone()));
+            return Err(anyhow!(message));
+        }
+    };
+    let _ = startup_tx.send(Ok(()));
     info!("embedded backend listening on {}", addr);
 
     axum::serve(listener, app)

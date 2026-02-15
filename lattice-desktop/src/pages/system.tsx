@@ -11,6 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMotionPresets } from "@/lib/motion";
 import { useSettings } from "@/lib/settings";
 
+type BackendRuntimeStatus = {
+  running: boolean;
+  last_error?: string | null;
+};
+
 export function System() {
   const { settings, updateSettings } = useSettings();
   const { theme, setTheme } = useTheme();
@@ -23,6 +28,8 @@ export function System() {
   const [content, setContent] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [backendRuntime, setBackendRuntime] =
+    React.useState<BackendRuntimeStatus | null>(null);
 
   React.useEffect(() => {
     setBaseUrl(settings.baseUrl);
@@ -42,9 +49,19 @@ export function System() {
     }
   }, []);
 
+  const loadRuntimeStatus = React.useCallback(async () => {
+    try {
+      const data = await invoke<BackendRuntimeStatus>("backend_runtime_status");
+      setBackendRuntime(data);
+    } catch {
+      setBackendRuntime(null);
+    }
+  }, []);
+
   React.useEffect(() => {
     loadConfig();
-  }, [loadConfig]);
+    loadRuntimeStatus();
+  }, [loadConfig, loadRuntimeStatus]);
 
   function saveConnection() {
     updateSettings({
@@ -61,6 +78,7 @@ export function System() {
       await invoke("backend_config_set", { content });
       if (restart) {
         await invoke("backend_restart");
+        await loadRuntimeStatus();
       }
       toast.success(restart ? "已保存并重启后端" : "配置已保存");
     } catch (error) {
@@ -74,6 +92,7 @@ export function System() {
     try {
       setSaving(true);
       await invoke("backend_restart");
+      await loadRuntimeStatus();
       toast.success("后端已重启");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "重启失败");
@@ -89,6 +108,12 @@ export function System() {
           <div>
             <div className="section-title">连接与外观</div>
             <div className="section-meta">管理后端连接、语言与主题设置</div>
+            <div className="section-meta">
+              嵌入后端: {backendRuntime?.running ? "运行中" : "未运行"}
+              {backendRuntime?.last_error
+                ? `（${backendRuntime.last_error}）`
+                : ""}
+            </div>
           </div>
           <Button onClick={saveConnection}>保存设置</Button>
         </div>

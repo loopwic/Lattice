@@ -9,6 +9,12 @@ import type {
 
 function normalizeBaseUrl(baseUrl: string) {
   const trimmed = baseUrl.trim();
+  if (!trimmed) {
+    return "http://127.0.0.1:3234";
+  }
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `http://${trimmed.replace(/^\/+/, "")}`;
+  }
   if (trimmed.endsWith("/")) {
     return trimmed.slice(0, -1);
   }
@@ -148,7 +154,25 @@ export async function fetchAlertStatus(
   const res = await fetch(buildUrl(baseUrl, "/v2/ops/alert-target/check"), {
     headers: buildHeaders(apiToken, false),
   });
-  return jsonOrThrow<AlertStatus>(res);
+  let payload: AlertStatus | null = null;
+  try {
+    payload = (await res.json()) as AlertStatus;
+  } catch {
+    payload = null;
+  }
+
+  if (
+    payload &&
+    typeof payload.status === "string" &&
+    typeof payload.mode === "string"
+  ) {
+    return payload;
+  }
+
+  if (!res.ok) {
+    throw new Error(`Alert check failed (${res.status})`);
+  }
+  throw new Error("Alert check returned invalid payload");
 }
 
 export async function fetchTaskProgress(

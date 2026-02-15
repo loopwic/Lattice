@@ -49,11 +49,17 @@ struct RuntimePaths {
     item_registry_path: PathBuf,
 }
 
-struct BackendState(Mutex<Option<BackendHandle>>);
+struct BackendState {
+    handle: Mutex<Option<BackendHandle>>,
+    last_error: Mutex<Option<String>>,
+}
 
 impl Default for BackendState {
     fn default() -> Self {
-        Self(Mutex::new(None))
+        Self {
+            handle: Mutex::new(None),
+            last_error: Mutex::new(None),
+        }
     }
 }
 
@@ -85,6 +91,12 @@ struct RconState(AsyncMutex<Option<Connection<TcpStream>>>);
 #[derive(Serialize)]
 struct RconStatus {
     connected: bool,
+}
+
+#[derive(Serialize)]
+struct BackendRuntimeStatus {
+    running: bool,
+    last_error: Option<String>,
 }
 
 fn default_config_path(app: &AppHandle) -> Option<PathBuf> {
@@ -217,28 +229,42 @@ fn spawn_backend(app: &AppHandle, state: &BackendState) {
     {
         return;
     }
-    if state.0.lock().unwrap().is_some() {
+    if state.handle.lock().unwrap().is_some() {
         return;
     }
+    *state.last_error.lock().unwrap() = None;
 
     let Some(config_path) = ensure_config(app) else {
+        *state.last_error.lock().unwrap() = Some("config path unavailable".to_string());
         eprintln!("backend start skipped: config path unavailable");
         return;
     };
 
     match lattice_backend::start_embedded(config_path) {
         Ok(handle) => {
-            state.0.lock().unwrap().replace(handle);
+            state.handle.lock().unwrap().replace(handle);
+            *state.last_error.lock().unwrap() = None;
         }
         Err(err) => {
+            *state.last_error.lock().unwrap() = Some(err.to_string());
             eprintln!("backend start failed: {err}");
         }
     }
 }
 
 fn stop_backend(state: &BackendState) {
-    if let Some(handle) = state.0.lock().unwrap().take() {
+    if let Some(handle) = state.handle.lock().unwrap().take() {
         handle.stop();
+    }
+}
+
+#[tauri::command]
+fn backend_runtime_status(state: State<BackendState>) -> BackendRuntimeStatus {
+    let running = state.handle.lock().unwrap().is_some();
+    let last_error = state.last_error.lock().unwrap().clone();
+    BackendRuntimeStatus {
+        running,
+        last_error,
     }
 }
 
@@ -353,6 +379,7 @@ pub fn run() {
             backend_config_get,
             backend_config_set,
             backend_restart,
+            backend_runtime_status,
             rcon_config_get,
             rcon_config_set,
             rcon_connect,
