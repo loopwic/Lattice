@@ -20,10 +20,31 @@ public final class TaskProgressReporter {
     }
 
     public static void report(LatticeConfig config, String task, boolean running, int total, int done) {
+        report(config, task, running, total, done, null, null, null);
+    }
+
+    public static void report(
+        LatticeConfig config,
+        String task,
+        boolean running,
+        int total,
+        int done,
+        String reasonCode,
+        String reasonMessage,
+        SourceTotalsPayload targetsTotalBySource
+    ) {
         if (config == null) {
             return;
         }
-        TaskProgressPayload payload = new TaskProgressPayload(task, running, total, done);
+        TaskProgressPayload payload = new TaskProgressPayload(
+            task,
+            running,
+            total,
+            done,
+            reasonCode,
+            reasonMessage,
+            targetsTotalBySource
+        );
         String body = GSON.toJson(payload);
         HttpRequest.Builder builder;
         try {
@@ -47,7 +68,18 @@ public final class TaskProgressReporter {
         String task,
         boolean running,
         int total,
-        int done
+        int done,
+        String reason_code,
+        String reason_message,
+        SourceTotalsPayload targets_total_by_source
+    ) {
+    }
+
+    public record SourceTotalsPayload(
+        int world_containers,
+        int sb_offline,
+        int rs2_offline,
+        int online_runtime
     ) {
     }
 }

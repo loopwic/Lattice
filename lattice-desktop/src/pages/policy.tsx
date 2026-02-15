@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchKeyItems, saveKeyItems, searchRegistry } from "@/lib/api";
 import { useMotionPresets } from "@/lib/motion";
+import { statusBadgeClass } from "@/lib/status-badge";
 import { useSettings } from "@/lib/settings";
 import type { ItemRegistryEntry, KeyItemRule, RiskLevel } from "@/lib/types";
 
@@ -121,7 +122,7 @@ export function Policy() {
             <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
               {entry.namespace && <span>命名空间: {entry.namespace}</span>}
               {entry.path && <span>路径: {entry.path}</span>}
-              {exists && <Badge className="status-liquid-info">已在规则</Badge>}
+              {exists && <Badge className={statusBadgeClass.info}>已在规则</Badge>}
             </div>
           </div>
           <Button size="sm" variant="secondary" disabled={exists} onClick={() => addRule(entry.item_id)}>
@@ -188,7 +189,7 @@ export function Policy() {
             </div>
 
             {registryQuery.isError && (
-              <div className="status-liquid-medium rounded-md px-3 py-2 text-sm">
+              <div className="rounded-md border border-foreground/28 bg-foreground/12 px-3 py-2 text-sm text-foreground">
                 搜索失败：{(registryQuery.error as Error).message || "未知错误"}
                 <div className="mt-2 text-xs">
                   请确认后端已启动，并在服务器执行命令上传物品注册表。
@@ -311,8 +312,8 @@ export function Policy() {
         {rulesQuery.isError && <div className="mt-3 text-sm text-destructive">{(rulesQuery.error as Error).message}</div>}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Badge className="status-liquid-info">窗口告警</Badge>
-          <Badge className="status-liquid-info">支持搜索一键加入</Badge>
+          <Badge className={statusBadgeClass.info}>窗口告警</Badge>
+          <Badge className={statusBadgeClass.info}>支持搜索一键加入</Badge>
         </div>
       </motion.section>
     </motion.div>

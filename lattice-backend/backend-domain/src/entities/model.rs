@@ -17,9 +17,7 @@ pub struct KeyItemRule {
 
 impl KeyItemRule {
     pub fn effective_threshold(&self) -> u64 {
-        self.threshold
-            .or(self.max_per_10m)
-            .unwrap_or_default()
+        self.threshold.or(self.max_per_10m).unwrap_or_default()
     }
 
     pub fn effective_risk_level(&self) -> String {
@@ -218,6 +216,12 @@ pub struct TaskProgress {
     pub total: u64,
     pub done: u64,
     pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets_total_by_source: Option<TargetsTotalBySource>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -254,6 +258,32 @@ pub struct TaskProgressUpdate {
     pub running: bool,
     pub total: u64,
     pub done: u64,
+    #[serde(default)]
+    pub reason_code: Option<String>,
+    #[serde(default)]
+    pub reason_message: Option<String>,
+    #[serde(default)]
+    pub targets_total_by_source: Option<TargetsTotalBySource>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TargetsTotalBySource {
+    pub world_containers: u64,
+    pub sb_offline: u64,
+    pub rs2_offline: u64,
+    pub online_runtime: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AlertDeliveryRecord {
+    pub timestamp_ms: i64,
+    pub status: String,
+    pub mode: String,
+    pub attempts: u8,
+    pub alert_count: usize,
+    pub rule_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

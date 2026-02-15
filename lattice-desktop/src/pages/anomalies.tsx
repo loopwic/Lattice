@@ -2,6 +2,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,15 +15,11 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { fetchAnomalies } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
+import { riskBadgeClass, statusBadgeClass } from "@/lib/status-badge";
 import { useSettings } from "@/lib/settings";
 import type { AnomalyRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const riskColor: Record<string, string> = {
-  HIGH: "status-liquid-high",
-  MEDIUM: "status-liquid-medium",
-  LOW: "status-liquid-low",
-};
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -49,6 +46,8 @@ export function Anomalies() {
   const [date, setDate] = React.useState(today());
   const [player, setPlayer] = React.useState("");
   const [selected, setSelected] = React.useState<AnomalyRow | null>(null);
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(50);
 
   const anomaliesQuery = useQuery({
     queryKey: ["anomalies", settings.baseUrl, settings.apiToken, date, player],
@@ -57,6 +56,21 @@ export function Anomalies() {
   });
 
   const data = anomaliesQuery.data || [];
+  const totalRows = data.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageRows = data.slice(pageStart, pageStart + pageSize);
+
+  React.useEffect(() => {
+    setPage(1);
+  }, [date, player, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   function exportCsv() {
     if (!data.length) {
@@ -132,6 +146,17 @@ export function Anomalies() {
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
           <div className="min-w-0">
+            <TablePager
+              totalRows={totalRows}
+              page={safePage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              onPageSizeChange={setPageSize}
+              onPrev={() => setPage((prev) => Math.max(1, prev - 1))}
+              onNext={() =>
+                setPage((prev) => Math.min(totalPages, prev + 1))
+              }
+            />
             <Table>
               <TableHeader>
                 <TableRow>
@@ -144,7 +169,7 @@ export function Anomalies() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.map((row: AnomalyRow) => {
+                {pageRows.map((row: AnomalyRow) => {
                   const key = rowKey(row);
                   const active = selected ? rowKey(selected) === key : false;
                   return (
@@ -157,7 +182,7 @@ export function Anomalies() {
                       onClick={() => setSelected(row)}
                     >
                       <TableCell className="text-xs text-muted-foreground">
-                        {row.event_time}
+                        {formatDateTime(row.event_time)}
                       </TableCell>
                       <TableCell className="text-sm text-foreground">
                         {row.player_name}
@@ -169,8 +194,7 @@ export function Anomalies() {
                       <TableCell>
                         <Badge
                           className={
-                            riskColor[row.risk_level] ||
-                            "bg-muted text-muted-foreground"
+                            riskBadgeClass[row.risk_level] || statusBadgeClass.info
                           }
                         >
                           {row.risk_level}
@@ -182,7 +206,7 @@ export function Anomalies() {
                     </TableRow>
                   );
                 })}
-                {data.length === 0 && !anomaliesQuery.isLoading && (
+                {totalRows === 0 && !anomaliesQuery.isLoading && (
                   <TableRow>
                     <TableCell
                       colSpan={6}
@@ -214,7 +238,7 @@ export function Anomalies() {
                 </div>
                 <div className="py-3">
                   <div className="text-xs text-muted-foreground">时间</div>
-                  <div className="mt-1">{selected.event_time}</div>
+                  <div className="mt-1">{formatDateTime(selected.event_time)}</div>
                 </div>
                 <div className="py-3">
                   <div className="text-xs text-muted-foreground">物品</div>

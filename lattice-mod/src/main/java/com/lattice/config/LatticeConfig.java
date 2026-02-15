@@ -37,6 +37,12 @@ public class LatticeConfig {
     public final boolean scanIncludeRs2;
     public final long scanMaxAvgTickMs;
     public final int scanMaxOnlinePlayers;
+    public final boolean scanWorldOfflineEnabled;
+    public final boolean scanSbOfflineEnabled;
+    public final boolean scanRs2OfflineEnabled;
+    public final int scanOfflineChunksPerTick;
+    public final int scanOfflineSourcesPerTick;
+    public final boolean scanIncludeOnlineRuntime;
     public final boolean registryUploadEnabled;
     public final int registryUploadChunkSize;
     public final java.util.List<String> registryUploadLanguages;
@@ -62,6 +68,12 @@ public class LatticeConfig {
                               boolean scanIncludeRs2,
                               long scanMaxAvgTickMs,
                               int scanMaxOnlinePlayers,
+                              boolean scanWorldOfflineEnabled,
+                              boolean scanSbOfflineEnabled,
+                              boolean scanRs2OfflineEnabled,
+                              int scanOfflineChunksPerTick,
+                              int scanOfflineSourcesPerTick,
+                              boolean scanIncludeOnlineRuntime,
                               boolean registryUploadEnabled,
                               int registryUploadChunkSize,
                               java.util.List<String> registryUploadLanguages,
@@ -86,6 +98,12 @@ public class LatticeConfig {
         this.scanIncludeRs2 = scanIncludeRs2;
         this.scanMaxAvgTickMs = scanMaxAvgTickMs;
         this.scanMaxOnlinePlayers = scanMaxOnlinePlayers;
+        this.scanWorldOfflineEnabled = scanWorldOfflineEnabled;
+        this.scanSbOfflineEnabled = scanSbOfflineEnabled;
+        this.scanRs2OfflineEnabled = scanRs2OfflineEnabled;
+        this.scanOfflineChunksPerTick = scanOfflineChunksPerTick;
+        this.scanOfflineSourcesPerTick = scanOfflineSourcesPerTick;
+        this.scanIncludeOnlineRuntime = scanIncludeOnlineRuntime;
         this.registryUploadEnabled = registryUploadEnabled;
         this.registryUploadChunkSize = registryUploadChunkSize;
         this.registryUploadLanguages = registryUploadLanguages;
@@ -133,6 +151,12 @@ public class LatticeConfig {
             Boolean scanIncludeRs2 = result.getBoolean("scan_include_rs2");
             Long scanMaxAvgTickMs = result.getLong("scan_max_avg_tick_ms");
             Long scanMaxOnlinePlayers = result.getLong("scan_max_online_players");
+            Boolean scanWorldOfflineEnabled = result.getBoolean("scan_world_offline_enabled");
+            Boolean scanSbOfflineEnabled = result.getBoolean("scan_sb_offline_enabled");
+            Boolean scanRs2OfflineEnabled = result.getBoolean("scan_rs2_offline_enabled");
+            Long scanOfflineChunksPerTick = result.getLong("scan_offline_chunks_per_tick");
+            Long scanOfflineSourcesPerTick = result.getLong("scan_offline_sources_per_tick");
+            Boolean scanIncludeOnlineRuntime = result.getBoolean("scan_include_online_runtime");
             Boolean registryUploadEnabled = result.getBoolean("registry_upload_enabled");
             Long registryUploadChunkSize = result.getLong("registry_upload_chunk_size");
             TomlArray registryUploadLanguagesArray = result.getArray("registry_upload_languages");
@@ -183,6 +207,12 @@ public class LatticeConfig {
                 scanIncludeRs2 != null ? scanIncludeRs2 : defaults.scanIncludeRs2,
                 scanMaxAvgTickMs != null ? scanMaxAvgTickMs : defaults.scanMaxAvgTickMs,
                 scanMaxOnlinePlayers != null ? scanMaxOnlinePlayers.intValue() : defaults.scanMaxOnlinePlayers,
+                scanWorldOfflineEnabled != null ? scanWorldOfflineEnabled : defaults.scanWorldOfflineEnabled,
+                scanSbOfflineEnabled != null ? scanSbOfflineEnabled : defaults.scanSbOfflineEnabled,
+                scanRs2OfflineEnabled != null ? scanRs2OfflineEnabled : defaults.scanRs2OfflineEnabled,
+                scanOfflineChunksPerTick != null ? scanOfflineChunksPerTick.intValue() : defaults.scanOfflineChunksPerTick,
+                scanOfflineSourcesPerTick != null ? scanOfflineSourcesPerTick.intValue() : defaults.scanOfflineSourcesPerTick,
+                scanIncludeOnlineRuntime != null ? scanIncludeOnlineRuntime : defaults.scanIncludeOnlineRuntime,
                 registryUploadEnabled != null ? registryUploadEnabled : defaults.registryUploadEnabled,
                 registryUploadChunkSize != null ? registryUploadChunkSize.intValue() : defaults.registryUploadChunkSize,
                 registryUploadLanguages,
@@ -216,6 +246,12 @@ public class LatticeConfig {
             true,
             45,
             -1,
+            true,
+            true,
+            true,
+            8,
+            2,
+            true,
             true,
             500,
             java.util.List.of("zh_cn", "en_us"),
@@ -254,6 +290,12 @@ public class LatticeConfig {
             "scan_include_rs2 = " + scanIncludeRs2,
             "scan_max_avg_tick_ms = " + scanMaxAvgTickMs,
             "scan_max_online_players = " + scanMaxOnlinePlayers,
+            "scan_world_offline_enabled = " + scanWorldOfflineEnabled,
+            "scan_sb_offline_enabled = " + scanSbOfflineEnabled,
+            "scan_rs2_offline_enabled = " + scanRs2OfflineEnabled,
+            "scan_offline_chunks_per_tick = " + scanOfflineChunksPerTick,
+            "scan_offline_sources_per_tick = " + scanOfflineSourcesPerTick,
+            "scan_include_online_runtime = " + scanIncludeOnlineRuntime,
             "registry_upload_enabled = " + registryUploadEnabled,
             "registry_upload_chunk_size = " + registryUploadChunkSize,
             "registry_upload_languages = [" + languages + "]",

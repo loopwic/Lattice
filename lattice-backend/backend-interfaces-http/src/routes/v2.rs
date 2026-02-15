@@ -6,11 +6,18 @@ use crate::handlers::{detect_handlers, ingest_handlers, ops_handlers, query_hand
 
 pub fn build_router(state: AppState) -> Router {
     Router::new()
-        .route("/v2/ingest/events", axum::routing::post(ingest_handlers::ingest_items))
-        .route("/v2/detect/anomalies", axum::routing::get(detect_handlers::list_anomalies))
+        .route(
+            "/v2/ingest/events",
+            axum::routing::post(ingest_handlers::ingest_items),
+        )
+        .route(
+            "/v2/detect/anomalies",
+            axum::routing::get(detect_handlers::list_anomalies),
+        )
         .route(
             "/v2/detect/rules",
-            axum::routing::get(detect_handlers::list_key_items).put(detect_handlers::update_key_items),
+            axum::routing::get(detect_handlers::list_key_items)
+                .put(detect_handlers::update_key_items),
         )
         .route(
             "/v2/query/item-registry",
@@ -34,8 +41,22 @@ pub fn build_router(state: AppState) -> Router {
             "/v2/ops/alert-target/check",
             axum::routing::get(ops_handlers::alert_target_check),
         )
-        .route("/v2/ops/health/live", axum::routing::get(ops_handlers::health_live))
-        .route("/v2/ops/health/ready", axum::routing::get(ops_handlers::health_ready))
+        .route(
+            "/v2/ops/alert-deliveries",
+            axum::routing::get(ops_handlers::list_alert_deliveries),
+        )
+        .route(
+            "/v2/ops/alert-deliveries/last",
+            axum::routing::get(ops_handlers::get_last_alert_delivery),
+        )
+        .route(
+            "/v2/ops/health/live",
+            axum::routing::get(ops_handlers::health_live),
+        )
+        .route(
+            "/v2/ops/health/ready",
+            axum::routing::get(ops_handlers::health_ready),
+        )
         .route(
             "/v2/ops/metrics/prometheus",
             axum::routing::get(ops_handlers::metrics_prometheus),

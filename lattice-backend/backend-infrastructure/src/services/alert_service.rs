@@ -1,3 +1,5 @@
+use std::collections::{BTreeSet, VecDeque};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -6,20 +8,41 @@ use futures_util::{SinkExt, StreamExt};
 use reqwest::header::AUTHORIZATION;
 use reqwest::Client;
 use serde_json::json;
-use tokio::time::timeout;
+use tokio::sync::RwLock;
+use tokio::time::{sleep, timeout};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::warn;
 
 use backend_domain::ports::AlertService;
-use backend_domain::{AnomalyRow, RuntimeConfig};
+use backend_domain::{AlertDeliveryRecord, AnomalyRow, RuntimeConfig};
 
-#[derive(Default)]
-pub struct DefaultAlertService;
+const DELIVERY_HISTORY_LIMIT: usize = 200;
+const ALERT_RETRY_ATTEMPTS: u8 = 3;
+const ALERT_RETRY_BASE_MS: u64 = 400;
+
+#[derive(Clone)]
+pub struct DefaultAlertService {
+    deliveries: Arc<RwLock<VecDeque<AlertDeliveryRecord>>>,
+    history_limit: usize,
+}
+
+impl Default for DefaultAlertService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl DefaultAlertService {
     pub fn new() -> Self {
-        Self
+        Self::with_history_limit(DELIVERY_HISTORY_LIMIT)
+    }
+
+    pub fn with_history_limit(history_limit: usize) -> Self {
+        Self {
+            deliveries: Arc::new(RwLock::new(VecDeque::new())),
+            history_limit: history_limit.max(1),
+        }
     }
 }
 
@@ -28,20 +51,58 @@ impl AlertService for DefaultAlertService {
     fn spawn_alerts(&self, config: RuntimeConfig, anomalies: Vec<AnomalyRow>) {
         let alerts = anomalies
             .into_iter()
-            .filter(|row| row.rule_id == "R4")
+            .filter(|row| should_emit_alert(&row.rule_id))
             .collect::<Vec<_>>();
         if alerts.is_empty() {
             return;
         }
+
+        let deliveries = self.deliveries.clone();
+        let history_limit = self.history_limit;
         tokio::spawn(async move {
-            if let Err(err) = send_alerts(&config, &alerts).await {
-                warn!("alert webhook failed: {}", err);
+            let mode = resolve_alert_mode(&config);
+            let (attempts, error) =
+                send_alerts_with_retry(&config, &alerts, ALERT_RETRY_ATTEMPTS).await;
+            let status = if error.is_none() {
+                "success".to_string()
+            } else {
+                "failed".to_string()
+            };
+
+            let mut rule_ids = BTreeSet::new();
+            for row in &alerts {
+                rule_ids.insert(row.rule_id.clone());
+            }
+
+            let record = AlertDeliveryRecord {
+                timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                status,
+                mode,
+                attempts,
+                alert_count: alerts.len(),
+                rule_ids: rule_ids.into_iter().collect(),
+                error: error.clone(),
+            };
+            push_delivery(deliveries, history_limit, record).await;
+
+            if let Some(err) = error {
+                warn!("alert webhook failed after {attempts} attempts: {err}");
             }
         });
     }
 
     async fn check_alert_target(&self, config: &RuntimeConfig) -> Result<()> {
         check_alert_target(config).await
+    }
+
+    async fn list_alert_deliveries(&self, limit: usize) -> Vec<AlertDeliveryRecord> {
+        let limit = limit.max(1).min(self.history_limit);
+        let deliveries = self.deliveries.read().await;
+        deliveries.iter().rev().take(limit).cloned().collect()
+    }
+
+    async fn last_alert_delivery(&self) -> Option<AlertDeliveryRecord> {
+        self.deliveries.read().await.back().cloned()
     }
 }
 
@@ -51,6 +112,55 @@ pub async fn check_alert_target(config: &RuntimeConfig) -> Result<()> {
         check_ws_target(config, &url).await
     } else {
         check_http_target(config, &url).await
+    }
+}
+
+fn should_emit_alert(rule_id: &str) -> bool {
+    matches!(rule_id, "R4" | "R10" | "R12")
+}
+
+fn resolve_alert_mode(config: &RuntimeConfig) -> String {
+    match resolve_alert_url(config) {
+        Ok(url) if url.starts_with("ws://") || url.starts_with("wss://") => "ws".to_string(),
+        Ok(_) => "http".to_string(),
+        Err(_) => "unset".to_string(),
+    }
+}
+
+async fn send_alerts_with_retry(
+    config: &RuntimeConfig,
+    alerts: &[AnomalyRow],
+    retry_attempts: u8,
+) -> (u8, Option<String>) {
+    let attempts = retry_attempts.max(1);
+    let mut current = 1u8;
+
+    loop {
+        match send_alerts(config, alerts).await {
+            Ok(()) => return (current, None),
+            Err(err) => {
+                let message = err.to_string();
+                if current >= attempts {
+                    return (current, Some(message));
+                }
+
+                let backoff_ms = ALERT_RETRY_BASE_MS.saturating_mul(1u64 << (current - 1));
+                sleep(Duration::from_millis(backoff_ms)).await;
+                current += 1;
+            }
+        }
+    }
+}
+
+async fn push_delivery(
+    deliveries: Arc<RwLock<VecDeque<AlertDeliveryRecord>>>,
+    history_limit: usize,
+    record: AlertDeliveryRecord,
+) {
+    let mut guard = deliveries.write().await;
+    guard.push_back(record);
+    while guard.len() > history_limit.max(1) {
+        guard.pop_front();
     }
 }
 
@@ -124,7 +234,7 @@ async fn send_ws_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRow]
     let token = config.alert_webhook_token.clone();
     if let Err(err) = try_ws_send(url, token.as_deref(), &payload, false).await {
         if token.as_ref().is_some() {
-            let _ = try_ws_send(url, token.as_deref(), &payload, true).await?;
+            try_ws_send(url, token.as_deref(), &payload, true).await?;
         } else {
             return Err(err);
         }
@@ -230,7 +340,12 @@ fn build_payload(alerts: &[AnomalyRow], template: &str) -> String {
     let lines = alerts
         .iter()
         .take(8)
-        .map(|row| format!("{} | {} x{} | {}", row.player_name, row.item_id, row.count, row.risk_level))
+        .map(|row| {
+            format!(
+                "{} | {} x{} | {}",
+                row.player_name, row.item_id, row.count, row.risk_level
+            )
+        })
         .collect::<Vec<_>>();
     let mut line_text = lines.join("\\n");
     if alerts.len() > 8 {

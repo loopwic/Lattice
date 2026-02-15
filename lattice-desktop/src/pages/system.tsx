@@ -16,29 +16,7 @@ type BackendRuntimeStatus = {
   last_error?: string | null;
 };
 
-type ProbeStatus = {
-  target?: string;
-  url?: string;
-  ok: boolean;
-  status?: number | null;
-  error?: string | null;
-  body?: string;
-};
-
-type BackendDebugReport = {
-  timestamp_ms: number;
-  runtime: BackendRuntimeStatus;
-  config_path?: string | null;
-  bind_addr?: string | null;
-  clickhouse_url?: string | null;
-  api_token_present: boolean;
-  probe_base_url?: string | null;
-  backend_tcp: ProbeStatus;
-  clickhouse_tcp: ProbeStatus;
-  health_live: ProbeStatus;
-  health_ready: ProbeStatus;
-  alert_check: ProbeStatus;
-};
+const OPEN_DEBUG_EVENT = "lattice-open-debug-console";
 
 export function System() {
   const { settings, updateSettings } = useSettings();
@@ -48,25 +26,18 @@ export function System() {
   const [baseUrl, setBaseUrl] = React.useState(settings.baseUrl);
   const [apiToken, setApiToken] = React.useState(settings.apiToken);
   const [lang, setLang] = React.useState(settings.lang || "zh_cn");
-  const [debugMode, setDebugMode] = React.useState(settings.debugMode ? "on" : "off");
 
   const [content, setContent] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [backendRuntime, setBackendRuntime] =
     React.useState<BackendRuntimeStatus | null>(null);
-  const [debugLoading, setDebugLoading] = React.useState(false);
-  const [debugReport, setDebugReport] = React.useState<BackendDebugReport | null>(null);
-  const [debugLogLoading, setDebugLogLoading] = React.useState(false);
-  const [debugLogPath, setDebugLogPath] = React.useState("");
-  const [debugLogs, setDebugLogs] = React.useState("");
 
   React.useEffect(() => {
     setBaseUrl(settings.baseUrl);
     setApiToken(settings.apiToken);
     setLang(settings.lang || "zh_cn");
-    setDebugMode(settings.debugMode ? "on" : "off");
-  }, [settings]);
+  }, [settings.apiToken, settings.baseUrl, settings.lang]);
 
   const loadConfig = React.useCallback(async () => {
     try {
@@ -89,70 +60,32 @@ export function System() {
     }
   }, []);
 
-  const loadDebugPath = React.useCallback(async () => {
-    try {
-      const path = await invoke<string>("debug_log_path");
-      setDebugLogPath(path);
-    } catch {
-      setDebugLogPath("");
-    }
-  }, []);
-
-  const loadDebugLogs = React.useCallback(async () => {
-    try {
-      setDebugLogLoading(true);
-      const logs = await invoke<string>("debug_log_tail", { lines: 400 });
-      setDebugLogs(logs);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "读取日志失败");
-    } finally {
-      setDebugLogLoading(false);
-    }
-  }, []);
-
   React.useEffect(() => {
     loadConfig();
     loadRuntimeStatus();
-    loadDebugPath();
-  }, [loadConfig, loadRuntimeStatus, loadDebugPath]);
-
-  React.useEffect(() => {
-    if (debugMode === "on") {
-      void loadDebugLogs();
-    }
-  }, [debugMode, loadDebugLogs]);
+  }, [loadConfig, loadRuntimeStatus]);
 
   function saveConnection() {
     updateSettings({
       baseUrl: baseUrl.trim(),
       apiToken: apiToken.trim(),
       lang,
-      debugMode: debugMode === "on",
+      debugMode: settings.debugMode,
     });
     toast.success("连接设置已保存");
   }
 
-  async function runDebugProbe() {
-    try {
-      setDebugLoading(true);
-      const report = await invoke<BackendDebugReport>("backend_debug_probe");
-      setDebugReport(report);
-      await loadDebugLogs();
-      toast.success("诊断完成");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "诊断失败");
-    } finally {
-      setDebugLoading(false);
-    }
+  function onDebugModeChange(value: string) {
+    const nextEnabled = value === "on";
+    updateSettings({
+      ...settings,
+      debugMode: nextEnabled,
+    });
+    toast.success(nextEnabled ? "调试模式已开启" : "调试模式已关闭");
   }
 
-  async function copyDebugLogs() {
-    try {
-      await navigator.clipboard.writeText(debugLogs || "");
-      toast.success("日志已复制");
-    } catch {
-      toast.error("复制失败");
-    }
+  function openDebugConsole() {
+    window.dispatchEvent(new Event(OPEN_DEBUG_EVENT));
   }
 
   async function saveConfig(restart: boolean) {
@@ -252,7 +185,10 @@ export function System() {
 
           <div className="grid gap-2">
             <Label>调试模式</Label>
-            <Select value={debugMode} onValueChange={setDebugMode}>
+            <Select
+              value={settings.debugMode ? "on" : "off"}
+              onValueChange={onDebugModeChange}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="选择模式" />
               </SelectTrigger>
@@ -265,56 +201,19 @@ export function System() {
         </div>
       </motion.section>
 
-      {debugMode === "on" ? (
+      {settings.debugMode ? (
         <motion.section className="section" variants={variants.sectionReveal}>
           <div className="section-header">
             <div>
               <div className="section-title">Debug 模式</div>
               <div className="section-meta">
-                常规日志 + 一键自检。日志文件: {debugLogPath || "不可用"}
+                调试面板已常驻启用，可在任意页面右下角浮动按钮打开。
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                onClick={runDebugProbe}
-                disabled={debugLoading}
-              >
-                {debugLoading ? "诊断中..." : "运行自检"}
+              <Button variant="secondary" onClick={openDebugConsole}>
+                打开调试面板
               </Button>
-              <Button
-                variant="secondary"
-                onClick={loadDebugLogs}
-                disabled={debugLogLoading}
-              >
-                {debugLogLoading ? "刷新中..." : "刷新日志"}
-              </Button>
-              <Button variant="secondary" onClick={copyDebugLogs}>
-                复制日志
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="grid gap-2">
-              <Label>运行日志（最近 400 行）</Label>
-              <Textarea
-                className="min-h-[320px] font-mono text-xs"
-                readOnly
-                value={debugLogs || "暂无日志。"}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>自检结果</Label>
-              <Textarea
-                className="min-h-[320px] font-mono text-xs"
-                readOnly
-                value={
-                  debugReport
-                    ? JSON.stringify(debugReport, null, 2)
-                    : "尚未运行自检。点击“运行自检”查看连通性结果。"
-                }
-              />
             </div>
           </div>
         </motion.section>

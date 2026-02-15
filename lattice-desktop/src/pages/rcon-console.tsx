@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { statusBadgeClass } from "@/lib/status-badge";
 
 type RconConfig = {
   host: string;
@@ -208,12 +209,12 @@ export function RconConsole() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
-              className={connected ? "status-liquid-ok" : "status-liquid-down"}
+              className={connected ? statusBadgeClass.ok : statusBadgeClass.down}
             >
               {connected ? "已连接" : "未连接"}
             </Badge>
             <Badge
-              className={enabled ? "status-liquid-low" : "status-liquid-medium"}
+              className={enabled ? statusBadgeClass.low : statusBadgeClass.medium}
             >
               {enabled ? "可用" : "禁用"}
             </Badge>

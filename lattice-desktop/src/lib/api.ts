@@ -1,4 +1,5 @@
 import type {
+  AlertDeliveryRecord,
   AlertStatus,
   AnomalyRow,
   ItemRegistryEntry,
@@ -51,12 +52,37 @@ function normalizeTaskProgress(raw: unknown) {
     total: number;
     done: number;
     updated_at: number;
+    reason_code?: string | null;
+    reason_message?: string | null;
+    targets_total_by_source?: {
+      world_containers?: number;
+      sb_offline?: number;
+      rs2_offline?: number;
+      online_runtime?: number;
+    } | null;
   }>;
+  const sourceTotals = next?.targets_total_by_source;
   return {
     running: Boolean(next?.running),
     total: Number(next?.total || 0),
     done: Number(next?.done || 0),
     updated_at: Number(next?.updated_at || 0),
+    reason_code:
+      typeof next?.reason_code === "string" && next.reason_code.trim()
+        ? next.reason_code.trim()
+        : null,
+    reason_message:
+      typeof next?.reason_message === "string" && next.reason_message.trim()
+        ? next.reason_message.trim()
+        : null,
+    targets_total_by_source: sourceTotals
+      ? {
+          world_containers: Number(sourceTotals.world_containers || 0),
+          sb_offline: Number(sourceTotals.sb_offline || 0),
+          rs2_offline: Number(sourceTotals.rs2_offline || 0),
+          online_runtime: Number(sourceTotals.online_runtime || 0),
+        }
+      : null,
   };
 }
 
@@ -184,6 +210,55 @@ export async function fetchTaskProgress(
   });
   const raw = await jsonOrThrow<unknown>(res);
   return normalizeTaskStatus(raw);
+}
+
+function normalizeAlertDelivery(raw: unknown): AlertDeliveryRecord {
+  const next = (raw ?? {}) as Partial<AlertDeliveryRecord>;
+  const rules = Array.isArray(next.rule_ids)
+    ? next.rule_ids.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    timestamp_ms: Number(next.timestamp_ms || 0),
+    status: typeof next.status === "string" ? next.status : "unknown",
+    mode: typeof next.mode === "string" ? next.mode : "unset",
+    attempts: Number(next.attempts || 0),
+    alert_count: Number(next.alert_count || 0),
+    rule_ids: rules,
+    error: typeof next.error === "string" ? next.error : null,
+  };
+}
+
+export async function fetchAlertDeliveries(
+  baseUrl: string,
+  apiToken: string,
+  limit = 50,
+): Promise<AlertDeliveryRecord[]> {
+  const size = Math.max(1, Math.min(200, Math.floor(limit)));
+  const res = await fetch(
+    buildUrl(baseUrl, `/v2/ops/alert-deliveries?limit=${size}`),
+    {
+      headers: buildHeaders(apiToken, false),
+    },
+  );
+  const raw = await jsonOrThrow<unknown[]>(res);
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((item) => normalizeAlertDelivery(item));
+}
+
+export async function fetchLastAlertDelivery(
+  baseUrl: string,
+  apiToken: string,
+): Promise<AlertDeliveryRecord | null> {
+  const res = await fetch(buildUrl(baseUrl, "/v2/ops/alert-deliveries/last"), {
+    headers: buildHeaders(apiToken, false),
+  });
+  const raw = await jsonOrThrow<unknown | null>(res);
+  if (!raw) {
+    return null;
+  }
+  return normalizeAlertDelivery(raw);
 }
 
 export async function pingHealth(baseUrl: string) {

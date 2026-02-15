@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  fetchAlertDeliveries,
   fetchAlertStatus,
   fetchMetrics,
   fetchTaskProgress,
@@ -26,8 +27,9 @@ import {
 } from "@/lib/api";
 import { parsePrometheusMetrics } from "@/lib/metrics";
 import { useMotionPresets } from "@/lib/motion";
+import { statusBadgeClass } from "@/lib/status-badge";
 import { useSettings } from "@/lib/settings";
-import type { TaskProgress } from "@/lib/types";
+import type { AlertDeliveryRecord, TaskProgress } from "@/lib/types";
 
 const tauriReady = isTauri();
 
@@ -102,7 +104,7 @@ const commands = [
   {
     title: "存储扫描",
     command: "/lattice scan",
-    description: "在不打扰玩家的前提下调度存储扫描。",
+    description: "触发全量资产扫描（全地图箱子 + SB + RS2 + 在线补充）。",
   },
 ];
 
@@ -177,12 +179,19 @@ export function Operations() {
     refetchInterval: 2000,
   });
 
+  const alertDeliveriesQuery = useQuery({
+    queryKey: ["ops-alert-deliveries", settings.baseUrl, settings.apiToken],
+    queryFn: () => fetchAlertDeliveries(settings.baseUrl, settings.apiToken, 20),
+    refetchInterval: 15_000,
+  });
+
   const metrics = metricsQuery.data
     ? parsePrometheusMetrics(metricsQuery.data)
     : null;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   const audit = taskQuery.data?.audit;
   const scan = taskQuery.data?.scan;
+  const lastAlertDelivery = alertDeliveriesQuery.data?.[0] ?? null;
 
   const refreshStatus = React.useCallback(async () => {
     if (!tauriReady) {
@@ -353,6 +362,65 @@ export function Operations() {
       return "0 / 0（无可执行目标）";
     }
     return `${progress.done} / ${progress.total}`;
+  }
+
+  function reasonLabel(code: string | null | undefined) {
+    if (!code) {
+      return "";
+    }
+    if (code === "NO_TARGETS") {
+      return "无可执行目标";
+    }
+    if (code === "WORLD_INDEX_FAILED") {
+      return "离线世界索引失败";
+    }
+    if (code === "SB_DATA_UNAVAILABLE") {
+      return "SB 离线数据不可达";
+    }
+    if (code === "RS2_DATA_UNAVAILABLE") {
+      return "RS2 离线数据不可达";
+    }
+    if (code === "HEALTH_GUARD_BLOCKED") {
+      return "负载保护触发，扫描延后";
+    }
+    if (code === "PARTIAL_COMPLETED") {
+      return "部分来源不可用，已降级完成";
+    }
+    return code;
+  }
+
+  function scanProgressLabel(
+    progress: TaskProgress | undefined,
+    queuedAt: number | null,
+  ) {
+    const base = taskProgressLabel(progress, queuedAt);
+    if (!progress || progress.total > 0) {
+      return base;
+    }
+    if (progress.reason_message) {
+      return `0 / 0（${progress.reason_message}）`;
+    }
+    const reason = reasonLabel(progress.reason_code);
+    if (reason) {
+      return `0 / 0（${reason}）`;
+    }
+    return base;
+  }
+
+  function scanSourcesLabel(progress: TaskProgress | undefined) {
+    const sources = progress?.targets_total_by_source;
+    if (!sources) {
+      return "来源统计: -";
+    }
+    return `来源统计: world ${sources.world_containers} / SB ${sources.sb_offline} / RS2 ${sources.rs2_offline} / runtime ${sources.online_runtime}`;
+  }
+
+  function formatDeliveryStatus(delivery: AlertDeliveryRecord | null) {
+    if (!delivery) {
+      return "无发送记录";
+    }
+    const status = delivery.status === "success" ? "成功" : "失败";
+    return `${status} · ${delivery.mode.toUpperCase()} · 重试 ${delivery.attempts} 次`;
   }
 
   function taskUpdateMetaLabel(
@@ -585,8 +653,16 @@ export function Operations() {
                   />
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">
-                  {taskProgressLabel(scan, scanQueuedAt)}
+                  {scanProgressLabel(scan, scanQueuedAt)}
                 </div>
+                <div className="mt-1 text-[11px] text-muted-foreground/80">
+                  {scanSourcesLabel(scan)}
+                </div>
+                {scan?.reason_code && (
+                  <div className="mt-1 text-[11px] text-muted-foreground/80">
+                    原因码: {scan.reason_code}（{reasonLabel(scan.reason_code)}）
+                  </div>
+                )}
                 <div className="mt-1 text-[11px] text-muted-foreground/80">
                   {taskUpdateMetaLabel(scan, scanQueuedAt)}
                 </div>
@@ -629,14 +705,14 @@ export function Operations() {
               <div className="flex flex-wrap gap-2">
                 <Badge
                   className={
-                    healthQuery.data ? "status-liquid-ok" : "status-liquid-down"
+                    healthQuery.data ? statusBadgeClass.ok : statusBadgeClass.down
                   }
                 >
                   Health {healthQuery.data ? "OK" : "DOWN"}
                 </Badge>
                 <Badge
                   className={
-                    readyQuery.data ? "status-liquid-ok" : "status-liquid-down"
+                    readyQuery.data ? statusBadgeClass.ok : statusBadgeClass.down
                   }
                 >
                   Ready {readyQuery.data ? "OK" : "DOWN"}
@@ -644,13 +720,13 @@ export function Operations() {
                 <Badge
                   className={
                     alertQuery.data?.status === "ok"
-                      ? "status-liquid-ok"
-                      : "status-liquid-medium"
+                      ? statusBadgeClass.ok
+                      : statusBadgeClass.medium
                   }
                 >
                   Alert {alertQuery.data?.status ?? "-"}
                 </Badge>
-                <Badge className="status-liquid-info">
+                <Badge className={statusBadgeClass.info}>
                   Mode {alertQuery.data?.mode ?? "-"}
                 </Badge>
               </div>
@@ -681,6 +757,36 @@ export function Operations() {
                   {metrics?.errors ?? "-"}
                 </span>
               </div>
+              <div className="flex items-center justify-between">
+                <span>告警发送</span>
+                <span className="text-foreground">
+                  {formatDeliveryStatus(lastAlertDelivery)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="section-subtitle">最近告警回执</div>
+              <div className="section-stack text-xs text-muted-foreground">
+                {(alertDeliveriesQuery.data ?? []).slice(0, 6).map((item) => (
+                  <div
+                    key={`${item.timestamp_ms}-${item.mode}-${item.status}`}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span>
+                      {item.status === "success" ? "成功" : "失败"} ·{" "}
+                      {item.mode.toUpperCase()} · {item.alert_count} 条 ·{" "}
+                      {item.rule_ids.join(", ")}
+                    </span>
+                    <span className="text-[11px]">
+                      {formatElapsed(Math.max(0, Date.now() - item.timestamp_ms))}
+                    </span>
+                  </div>
+                ))}
+                {(alertDeliveriesQuery.data?.length ?? 0) === 0 && (
+                  <div>暂无发送回执</div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -705,12 +811,12 @@ export function Operations() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
-              className={connected ? "status-liquid-ok" : "status-liquid-down"}
+              className={connected ? statusBadgeClass.ok : statusBadgeClass.down}
             >
               {connected ? "已连接" : "未连接"}
             </Badge>
             <Badge
-              className={enabled ? "status-liquid-low" : "status-liquid-medium"}
+              className={enabled ? statusBadgeClass.low : statusBadgeClass.medium}
             >
               {enabled ? "配置开启" : "配置未开启"}
             </Badge>

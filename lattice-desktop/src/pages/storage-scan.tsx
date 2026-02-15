@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,15 +15,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fetchStorageScan } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
+import { riskBadgeClass, statusBadgeClass } from "@/lib/status-badge";
 import { useSettings } from "@/lib/settings";
 import type { StorageScanRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const riskColor: Record<string, string> = {
-  HIGH: "status-liquid-high",
-  MEDIUM: "status-liquid-medium",
-  LOW: "status-liquid-low",
-};
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -57,6 +54,8 @@ export function StorageScan() {
   const [item, setItem] = React.useState("");
   const [limit, setLimit] = React.useState("200");
   const [selected, setSelected] = React.useState<StorageScanRow | null>(null);
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(50);
 
   const limitValue = Number.parseInt(limit, 10);
   const effectiveLimit = Number.isFinite(limitValue)
@@ -76,6 +75,21 @@ export function StorageScan() {
   });
 
   const data = scanQuery.data || [];
+  const totalRows = data.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+  const pageRows = data.slice(start, start + pageSize);
+
+  React.useEffect(() => {
+    setPage(1);
+  }, [date, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   function rowKey(row: StorageScanRow) {
     return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
@@ -139,6 +153,17 @@ export function StorageScan() {
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
           <div className="min-w-0">
+            <TablePager
+              totalRows={totalRows}
+              page={safePage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              onPageSizeChange={setPageSize}
+              onPrev={() => setPage((prev) => Math.max(1, prev - 1))}
+              onNext={() =>
+                setPage((prev) => Math.min(totalPages, prev + 1))
+              }
+            />
             <Table>
               <TableHeader>
                 <TableRow>
@@ -150,7 +175,7 @@ export function StorageScan() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.map((row) => {
+                {pageRows.map((row) => {
                   const key = rowKey(row);
                   const active = selected ? rowKey(selected) === key : false;
                   return (
@@ -163,7 +188,7 @@ export function StorageScan() {
                       onClick={() => setSelected(row)}
                     >
                       <TableCell className="text-xs text-muted-foreground">
-                        {row.event_time}
+                        {formatDateTime(row.event_time)}
                       </TableCell>
                       <TableCell className="text-xs text-foreground break-all">
                         {row.item_id}
@@ -172,8 +197,7 @@ export function StorageScan() {
                       <TableCell>
                         <Badge
                           className={
-                            riskColor[row.risk_level] ||
-                            "bg-muted text-muted-foreground"
+                            riskBadgeClass[row.risk_level] || statusBadgeClass.info
                           }
                         >
                           {row.risk_level}
@@ -185,7 +209,7 @@ export function StorageScan() {
                     </TableRow>
                   );
                 })}
-                {data.length === 0 && !scanQuery.isLoading && (
+                {totalRows === 0 && !scanQuery.isLoading && (
                   <TableRow>
                     <TableCell
                       colSpan={5}

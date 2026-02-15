@@ -53,11 +53,31 @@ export type TaskProgress = {
   total: number;
   done: number;
   updated_at: number;
+  reason_code?: string | null;
+  reason_message?: string | null;
+  targets_total_by_source?: TargetsTotalBySource | null;
 };
 
 export type TaskStatus = {
   audit: TaskProgress;
   scan: TaskProgress;
+};
+
+export type TargetsTotalBySource = {
+  world_containers: number;
+  sb_offline: number;
+  rs2_offline: number;
+  online_runtime: number;
+};
+
+export type AlertDeliveryRecord = {
+  timestamp_ms: number;
+  status: string;
+  mode: string;
+  attempts: number;
+  alert_count: number;
+  rule_ids: string[];
+  error?: string | null;
 };
 
 export type HealthStatus = {

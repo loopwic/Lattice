@@ -246,42 +246,6 @@ body {
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
   }
-
-  .status-liquid-high {
-    background: color-mix(in oklab, var(--foreground) 24%, transparent);
-    color: color-mix(in oklab, var(--foreground) 96%, var(--background) 4%);
-    border: 1px solid color-mix(in oklab, var(--foreground) 36%, transparent);
-  }
-
-  .status-liquid-medium {
-    background: color-mix(in oklab, var(--foreground) 16%, transparent);
-    color: color-mix(in oklab, var(--foreground) 88%, var(--background) 12%);
-    border: 1px solid color-mix(in oklab, var(--foreground) 28%, transparent);
-  }
-
-  .status-liquid-low {
-    background: color-mix(in oklab, var(--foreground) 10%, transparent);
-    color: color-mix(in oklab, var(--foreground) 82%, var(--background) 18%);
-    border: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
-  }
-
-  .status-liquid-ok {
-    background: color-mix(in oklab, var(--foreground) 14%, transparent);
-    color: color-mix(in oklab, var(--foreground) 90%, var(--background) 10%);
-    border: 1px solid color-mix(in oklab, var(--foreground) 26%, transparent);
-  }
-
-  .status-liquid-down {
-    background: color-mix(in oklab, var(--foreground) 28%, transparent);
-    color: color-mix(in oklab, var(--foreground) 97%, var(--background) 3%);
-    border: 1px solid color-mix(in oklab, var(--foreground) 40%, transparent);
-  }
-
-  .status-liquid-info {
-    background: color-mix(in oklab, var(--foreground) 10%, transparent);
-    color: color-mix(in oklab, var(--foreground) 80%, var(--background) 20%);
-    border: 1px solid color-mix(in oklab, var(--foreground) 20%, transparent);
-  }
 }
 
 @layer base {

@@ -53,7 +53,13 @@ Rules:
 - `PUT /v2/ops/rcon-config`
 - `GET /v2/ops/task-progress`
 - `PUT /v2/ops/task-progress`
+  - optional payload fields:
+    - `reason_code: string`
+    - `reason_message: string`
+    - `targets_total_by_source: { world_containers, sb_offline, rs2_offline, online_runtime }`
 - `GET /v2/ops/alert-target/check`
+- `GET /v2/ops/alert-deliveries?limit=<optional>`
+- `GET /v2/ops/alert-deliveries/last`
 - `GET /v2/ops/health/live`
 - `GET /v2/ops/health/ready`
 - `GET /v2/ops/metrics/prometheus`

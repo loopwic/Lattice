@@ -4,20 +4,17 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchAnomalies, fetchStorageScan } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { useMotionPresets } from "@/lib/motion";
+import { riskBadgeClass, statusBadgeClass } from "@/lib/status-badge";
 import { useSettings } from "@/lib/settings";
 import type { AnomalyRow, StorageScanRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const riskColor: Record<string, string> = {
-  HIGH: "status-liquid-high",
-  MEDIUM: "status-liquid-medium",
-  LOW: "status-liquid-low",
-};
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -72,11 +69,15 @@ export function Investigate() {
   const [anomalyDate, setAnomalyDate] = React.useState(today());
   const [player, setPlayer] = React.useState("");
   const [selectedAnomaly, setSelectedAnomaly] = React.useState<AnomalyRow | null>(null);
+  const [anomalyPage, setAnomalyPage] = React.useState(1);
+  const [anomalyPageSize, setAnomalyPageSize] = React.useState(50);
 
   const [scanDate, setScanDate] = React.useState(today());
   const [item, setItem] = React.useState("");
   const [limit, setLimit] = React.useState("200");
   const [selectedStorage, setSelectedStorage] = React.useState<StorageScanRow | null>(null);
+  const [scanPage, setScanPage] = React.useState(1);
+  const [scanPageSize, setScanPageSize] = React.useState(50);
 
   const anomaliesQuery = useQuery({
     queryKey: ["anomalies", settings.baseUrl, settings.apiToken, anomalyDate, player],
@@ -84,6 +85,17 @@ export function Investigate() {
   });
 
   const anomaliesData = anomaliesQuery.data || [];
+  const anomalyTotalRows = anomaliesData.length;
+  const anomalyTotalPages = Math.max(
+    1,
+    Math.ceil(anomalyTotalRows / anomalyPageSize),
+  );
+  const anomalySafePage = Math.min(anomalyPage, anomalyTotalPages);
+  const anomalyStart = (anomalySafePage - 1) * anomalyPageSize;
+  const anomalyRows = anomaliesData.slice(
+    anomalyStart,
+    anomalyStart + anomalyPageSize,
+  );
 
   const limitValue = Number.parseInt(limit, 10);
   const effectiveLimit = Number.isFinite(limitValue) ? Math.min(Math.max(limitValue, 1), 2000) : 200;
@@ -94,6 +106,31 @@ export function Investigate() {
   });
 
   const scanData = scanQuery.data || [];
+  const scanTotalRows = scanData.length;
+  const scanTotalPages = Math.max(1, Math.ceil(scanTotalRows / scanPageSize));
+  const scanSafePage = Math.min(scanPage, scanTotalPages);
+  const scanStart = (scanSafePage - 1) * scanPageSize;
+  const scanRows = scanData.slice(scanStart, scanStart + scanPageSize);
+
+  React.useEffect(() => {
+    setAnomalyPage(1);
+  }, [anomalyDate, player, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (anomalyPage > anomalyTotalPages) {
+      setAnomalyPage(anomalyTotalPages);
+    }
+  }, [anomalyPage, anomalyTotalPages]);
+
+  React.useEffect(() => {
+    setScanPage(1);
+  }, [scanDate, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (scanPage > scanTotalPages) {
+      setScanPage(scanTotalPages);
+    }
+  }, [scanPage, scanTotalPages]);
 
   function jumpTo(target: "anomalies" | "storage") {
     const section = target === "anomalies" ? anomaliesRef.current : storageRef.current;
@@ -188,6 +225,19 @@ export function Investigate() {
 
         <div className="grid gap-6 lg:grid-cols-[1.65fr_1fr]">
           <div className="min-w-0">
+            <TablePager
+              totalRows={anomalyTotalRows}
+              page={anomalySafePage}
+              totalPages={anomalyTotalPages}
+              pageSize={anomalyPageSize}
+              onPageSizeChange={setAnomalyPageSize}
+              onPrev={() => setAnomalyPage((prev) => Math.max(1, prev - 1))}
+              onNext={() =>
+                setAnomalyPage((prev) =>
+                  Math.min(anomalyTotalPages, prev + 1),
+                )
+              }
+            />
             <Table>
               <TableHeader>
                 <TableRow>
@@ -200,7 +250,7 @@ export function Investigate() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {anomaliesData.map((row) => {
+                {anomalyRows.map((row) => {
                   const key = anomalyRowKey(row);
                   const active = selectedAnomaly ? anomalyRowKey(selectedAnomaly) === key : false;
                   return (
@@ -209,18 +259,18 @@ export function Investigate() {
                       className={cn("cursor-pointer", active && "bg-muted/58")}
                       onClick={() => setSelectedAnomaly(row)}
                     >
-                      <TableCell className="text-xs text-muted-foreground">{row.event_time}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(row.event_time)}</TableCell>
                       <TableCell className="text-sm text-foreground">{row.player_name}</TableCell>
                       <TableCell className="break-all text-xs text-muted-foreground">{row.item_id}</TableCell>
                       <TableCell>{row.count}</TableCell>
                       <TableCell>
-                        <Badge className={riskColor[row.risk_level] || "status-liquid-info"}>{row.risk_level}</Badge>
+                        <Badge className={riskBadgeClass[row.risk_level] || statusBadgeClass.info}>{row.risk_level}</Badge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{row.rule_id}</TableCell>
                     </TableRow>
                   );
                 })}
-                {anomaliesData.length === 0 && !anomaliesQuery.isLoading && (
+                {anomalyTotalRows === 0 && !anomaliesQuery.isLoading && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground">
                       暂无异常记录
@@ -247,7 +297,7 @@ export function Investigate() {
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">时间</div>
-                  <div className="mt-1">{selectedAnomaly.event_time}</div>
+                  <div className="mt-1">{formatDateTime(selectedAnomaly.event_time)}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">物品</div>
@@ -305,6 +355,17 @@ export function Investigate() {
 
         <div className="grid gap-6 lg:grid-cols-[1.65fr_1fr]">
           <div className="min-w-0">
+            <TablePager
+              totalRows={scanTotalRows}
+              page={scanSafePage}
+              totalPages={scanTotalPages}
+              pageSize={scanPageSize}
+              onPageSizeChange={setScanPageSize}
+              onPrev={() => setScanPage((prev) => Math.max(1, prev - 1))}
+              onNext={() =>
+                setScanPage((prev) => Math.min(scanTotalPages, prev + 1))
+              }
+            />
             <Table>
               <TableHeader>
                 <TableRow>
@@ -316,7 +377,7 @@ export function Investigate() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {scanData.map((row) => {
+                {scanRows.map((row) => {
                   const key = scanRowKey(row);
                   const active = selectedStorage ? scanRowKey(selectedStorage) === key : false;
                   return (
@@ -325,17 +386,17 @@ export function Investigate() {
                       className={cn("cursor-pointer", active && "bg-muted/58")}
                       onClick={() => setSelectedStorage(row)}
                     >
-                      <TableCell className="text-xs text-muted-foreground">{row.event_time}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(row.event_time)}</TableCell>
                       <TableCell className="break-all text-xs text-foreground">{row.item_id}</TableCell>
                       <TableCell>{row.count}</TableCell>
                       <TableCell>
-                        <Badge className={riskColor[row.risk_level] || "status-liquid-info"}>{row.risk_level}</Badge>
+                        <Badge className={riskBadgeClass[row.risk_level] || statusBadgeClass.info}>{row.risk_level}</Badge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatCoords(row)}</TableCell>
                     </TableRow>
                   );
                 })}
-                {scanData.length === 0 && !scanQuery.isLoading && (
+                {scanTotalRows === 0 && !scanQuery.isLoading && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
                       暂无扫描结果
