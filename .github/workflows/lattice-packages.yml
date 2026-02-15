@@ -48,7 +48,7 @@ jobs:
 
       - name: Install Windows bundlers
         if: runner.os == 'Windows'
-        run: choco install wixtoolset nsis -y --no-progress
+        run: choco install nsis -y --no-progress
 
       - name: Install desktop dependencies
         working-directory: lattice-desktop
@@ -84,7 +84,7 @@ jobs:
       - name: Build Windows installers
         if: runner.os == 'Windows'
         working-directory: lattice-desktop
-        run: pnpm tauri build --target ${{ matrix.target }} --bundles msi,nsis
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis
 
       - name: Upload macOS artifacts
         if: runner.os == 'macOS'
@@ -104,7 +104,6 @@ jobs:
           if-no-files-found: error
           path: |
             lattice-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            lattice-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
             lattice-desktop/src-tauri/target/${{ matrix.target }}/release/lattice-desktop.exe
 
   mod:
