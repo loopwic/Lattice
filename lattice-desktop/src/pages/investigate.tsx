@@ -1,5 +1,15 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  type ColumnDef,
+  type PaginationState,
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +17,14 @@ import { Button } from "@/components/ui/button";
 import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { fetchAnomalies, fetchStorageScan } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { useMotionPresets } from "@/lib/motion";
@@ -59,6 +76,14 @@ function formatStorage(row: StorageScanRow) {
   return `${mod}:${id}`;
 }
 
+function anomalyRowKey(row: AnomalyRow) {
+  return `${row.event_time}-${row.player_name}-${row.item_id}`;
+}
+
+function scanRowKey(row: StorageScanRow) {
+  return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
+}
+
 export function Investigate() {
   const { settings } = useSettings();
   const { variants } = useMotionPresets();
@@ -69,80 +94,210 @@ export function Investigate() {
   const [anomalyDate, setAnomalyDate] = React.useState(today());
   const [player, setPlayer] = React.useState("");
   const [selectedAnomaly, setSelectedAnomaly] = React.useState<AnomalyRow | null>(null);
-  const [anomalyPage, setAnomalyPage] = React.useState(1);
-  const [anomalyPageSize, setAnomalyPageSize] = React.useState(50);
+  const [anomalySorting, setAnomalySorting] = React.useState<SortingState>([]);
+  const [anomalyPagination, setAnomalyPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 50,
+  });
 
   const [scanDate, setScanDate] = React.useState(today());
   const [item, setItem] = React.useState("");
   const [limit, setLimit] = React.useState("200");
   const [selectedStorage, setSelectedStorage] = React.useState<StorageScanRow | null>(null);
-  const [scanPage, setScanPage] = React.useState(1);
-  const [scanPageSize, setScanPageSize] = React.useState(50);
+  const [scanSorting, setScanSorting] = React.useState<SortingState>([]);
+  const [scanPagination, setScanPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 50,
+  });
 
   const anomaliesQuery = useQuery({
     queryKey: ["anomalies", settings.baseUrl, settings.apiToken, anomalyDate, player],
-    queryFn: () => fetchAnomalies(settings.baseUrl, settings.apiToken, anomalyDate, player.trim() || undefined),
+    queryFn: () =>
+      fetchAnomalies(
+        settings.baseUrl,
+        settings.apiToken,
+        anomalyDate,
+        player.trim() || undefined,
+      ),
   });
 
   const anomaliesData = anomaliesQuery.data || [];
-  const anomalyTotalRows = anomaliesData.length;
-  const anomalyTotalPages = Math.max(
-    1,
-    Math.ceil(anomalyTotalRows / anomalyPageSize),
-  );
-  const anomalySafePage = Math.min(anomalyPage, anomalyTotalPages);
-  const anomalyStart = (anomalySafePage - 1) * anomalyPageSize;
-  const anomalyRows = anomaliesData.slice(
-    anomalyStart,
-    anomalyStart + anomalyPageSize,
-  );
 
   const limitValue = Number.parseInt(limit, 10);
-  const effectiveLimit = Number.isFinite(limitValue) ? Math.min(Math.max(limitValue, 1), 2000) : 200;
+  const effectiveLimit = Number.isFinite(limitValue)
+    ? Math.min(Math.max(limitValue, 1), 2000)
+    : 200;
 
   const scanQuery = useQuery({
-    queryKey: ["storage-scan", settings.baseUrl, settings.apiToken, scanDate, item, effectiveLimit],
-    queryFn: () => fetchStorageScan(settings.baseUrl, settings.apiToken, scanDate, item.trim() || undefined, effectiveLimit),
+    queryKey: [
+      "storage-scan",
+      settings.baseUrl,
+      settings.apiToken,
+      scanDate,
+      item,
+      effectiveLimit,
+    ],
+    queryFn: () =>
+      fetchStorageScan(
+        settings.baseUrl,
+        settings.apiToken,
+        scanDate,
+        item.trim() || undefined,
+        effectiveLimit,
+      ),
   });
 
   const scanData = scanQuery.data || [];
+
+  const anomalyColumns = React.useMemo<ColumnDef<AnomalyRow>[]>(
+    () => [
+      {
+        accessorKey: "event_time",
+        header: "时间",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatDateTime(row.original.event_time)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "player_name",
+        header: "玩家",
+        cell: ({ row }) => <span className="text-sm text-foreground">{row.original.player_name}</span>,
+      },
+      {
+        accessorKey: "item_id",
+        header: "物品",
+        cell: ({ row }) => (
+          <span className="break-all text-xs text-muted-foreground">{row.original.item_id}</span>
+        ),
+      },
+      {
+        accessorKey: "count",
+        header: "数量",
+      },
+      {
+        accessorKey: "risk_level",
+        header: "风险",
+        cell: ({ row }) => (
+          <Badge className={riskBadgeClass[row.original.risk_level] || statusBadgeClass.info}>
+            {row.original.risk_level}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "rule_id",
+        header: "规则",
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.rule_id}</span>,
+      },
+    ],
+    [],
+  );
+
+  const scanColumns = React.useMemo<ColumnDef<StorageScanRow>[]>(
+    () => [
+      {
+        accessorKey: "event_time",
+        header: "时间",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatDateTime(row.original.event_time)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "item_id",
+        header: "物品",
+        cell: ({ row }) => <span className="break-all text-xs text-foreground">{row.original.item_id}</span>,
+      },
+      {
+        accessorKey: "count",
+        header: "数量",
+      },
+      {
+        accessorKey: "risk_level",
+        header: "风险",
+        cell: ({ row }) => (
+          <Badge className={riskBadgeClass[row.original.risk_level] || statusBadgeClass.info}>
+            {row.original.risk_level}
+          </Badge>
+        ),
+      },
+      {
+        id: "coords",
+        header: "坐标",
+        enableSorting: false,
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatCoords(row.original)}</span>,
+      },
+    ],
+    [],
+  );
+
+  const anomalyTable = useReactTable({
+    data: anomaliesData,
+    columns: anomalyColumns,
+    state: {
+      sorting: anomalySorting,
+      pagination: anomalyPagination,
+    },
+    onSortingChange: setAnomalySorting,
+    onPaginationChange: setAnomalyPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const scanTable = useReactTable({
+    data: scanData,
+    columns: scanColumns,
+    state: {
+      sorting: scanSorting,
+      pagination: scanPagination,
+    },
+    onSortingChange: setScanSorting,
+    onPaginationChange: setScanPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const anomalyPageState = anomalyTable.getState().pagination;
+  const anomalyTotalRows = anomaliesData.length;
+  const anomalyTotalPages = Math.max(1, anomalyTable.getPageCount());
+
+  const scanPageState = scanTable.getState().pagination;
   const scanTotalRows = scanData.length;
-  const scanTotalPages = Math.max(1, Math.ceil(scanTotalRows / scanPageSize));
-  const scanSafePage = Math.min(scanPage, scanTotalPages);
-  const scanStart = (scanSafePage - 1) * scanPageSize;
-  const scanRows = scanData.slice(scanStart, scanStart + scanPageSize);
+  const scanTotalPages = Math.max(1, scanTable.getPageCount());
 
   React.useEffect(() => {
-    setAnomalyPage(1);
+    setAnomalyPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [anomalyDate, player, settings.baseUrl, settings.apiToken]);
 
   React.useEffect(() => {
-    if (anomalyPage > anomalyTotalPages) {
-      setAnomalyPage(anomalyTotalPages);
-    }
-  }, [anomalyPage, anomalyTotalPages]);
-
-  React.useEffect(() => {
-    setScanPage(1);
+    setScanPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [scanDate, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
 
   React.useEffect(() => {
-    if (scanPage > scanTotalPages) {
-      setScanPage(scanTotalPages);
+    if (selectedAnomaly) {
+      const exists = anomaliesData.some((row) => anomalyRowKey(row) === anomalyRowKey(selectedAnomaly));
+      if (!exists) {
+        setSelectedAnomaly(null);
+      }
     }
-  }, [scanPage, scanTotalPages]);
+  }, [anomaliesData, selectedAnomaly]);
+
+  React.useEffect(() => {
+    if (selectedStorage) {
+      const exists = scanData.some((row) => scanRowKey(row) === scanRowKey(selectedStorage));
+      if (!exists) {
+        setSelectedStorage(null);
+      }
+    }
+  }, [scanData, selectedStorage]);
 
   function jumpTo(target: "anomalies" | "storage") {
     const section = target === "anomalies" ? anomaliesRef.current : storageRef.current;
     section?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  function anomalyRowKey(row: AnomalyRow) {
-    return `${row.event_time}-${row.player_name}-${row.item_id}`;
-  }
-
-  function scanRowKey(row: StorageScanRow) {
-    return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
   }
 
   async function handleCopyCoords(row: StorageScanRow) {
@@ -165,7 +320,15 @@ export function Investigate() {
       toast.error("暂无可导出的记录");
       return;
     }
-    const header = ["event_time", "player_name", "item_id", "count", "risk_level", "rule_id", "reason"];
+    const header = [
+      "event_time",
+      "player_name",
+      "item_id",
+      "count",
+      "risk_level",
+      "rule_id",
+      "reason",
+    ];
     const rows = anomaliesData.map((row) => [
       row.event_time,
       row.player_name,
@@ -175,7 +338,9 @@ export function Investigate() {
       row.rule_id,
       row.reason,
     ]);
-    const csv = [header, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\n");
+    const csv = [header, ...rows]
+      .map((row) => row.map(escapeCsv).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -227,46 +392,49 @@ export function Investigate() {
           <div className="min-w-0">
             <TablePager
               totalRows={anomalyTotalRows}
-              page={anomalySafePage}
+              page={anomalyPageState.pageIndex + 1}
               totalPages={anomalyTotalPages}
-              pageSize={anomalyPageSize}
-              onPageSizeChange={setAnomalyPageSize}
-              onPrev={() => setAnomalyPage((prev) => Math.max(1, prev - 1))}
-              onNext={() =>
-                setAnomalyPage((prev) =>
-                  Math.min(anomalyTotalPages, prev + 1),
-                )
-              }
+              pageSize={anomalyPageState.pageSize}
+              onPageSizeChange={(size) => {
+                anomalyTable.setPageSize(size);
+                anomalyTable.setPageIndex(0);
+              }}
+              onPrev={() => anomalyTable.previousPage()}
+              onNext={() => anomalyTable.nextPage()}
             />
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>时间</TableHead>
-                  <TableHead>玩家</TableHead>
-                  <TableHead>物品</TableHead>
-                  <TableHead>数量</TableHead>
-                  <TableHead>风险</TableHead>
-                  <TableHead>规则</TableHead>
-                </TableRow>
+                {anomalyTable.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id}>
+                    {group.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={cn(header.column.getCanSort() && "cursor-pointer select-none")}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
-                {anomalyRows.map((row) => {
-                  const key = anomalyRowKey(row);
+                {anomalyTable.getRowModel().rows.map((row) => {
+                  const key = anomalyRowKey(row.original);
                   const active = selectedAnomaly ? anomalyRowKey(selectedAnomaly) === key : false;
                   return (
                     <TableRow
                       key={key}
                       className={cn("cursor-pointer", active && "bg-muted/58")}
-                      onClick={() => setSelectedAnomaly(row)}
+                      onClick={() => setSelectedAnomaly(row.original)}
                     >
-                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(row.event_time)}</TableCell>
-                      <TableCell className="text-sm text-foreground">{row.player_name}</TableCell>
-                      <TableCell className="break-all text-xs text-muted-foreground">{row.item_id}</TableCell>
-                      <TableCell>{row.count}</TableCell>
-                      <TableCell>
-                        <Badge className={riskBadgeClass[row.risk_level] || statusBadgeClass.info}>{row.risk_level}</Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{row.rule_id}</TableCell>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   );
                 })}
@@ -357,42 +525,49 @@ export function Investigate() {
           <div className="min-w-0">
             <TablePager
               totalRows={scanTotalRows}
-              page={scanSafePage}
+              page={scanPageState.pageIndex + 1}
               totalPages={scanTotalPages}
-              pageSize={scanPageSize}
-              onPageSizeChange={setScanPageSize}
-              onPrev={() => setScanPage((prev) => Math.max(1, prev - 1))}
-              onNext={() =>
-                setScanPage((prev) => Math.min(scanTotalPages, prev + 1))
-              }
+              pageSize={scanPageState.pageSize}
+              onPageSizeChange={(size) => {
+                scanTable.setPageSize(size);
+                scanTable.setPageIndex(0);
+              }}
+              onPrev={() => scanTable.previousPage()}
+              onNext={() => scanTable.nextPage()}
             />
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>时间</TableHead>
-                  <TableHead>物品</TableHead>
-                  <TableHead>数量</TableHead>
-                  <TableHead>风险</TableHead>
-                  <TableHead>坐标</TableHead>
-                </TableRow>
+                {scanTable.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id}>
+                    {group.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={cn(header.column.getCanSort() && "cursor-pointer select-none")}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
-                {scanRows.map((row) => {
-                  const key = scanRowKey(row);
+                {scanTable.getRowModel().rows.map((row) => {
+                  const key = scanRowKey(row.original);
                   const active = selectedStorage ? scanRowKey(selectedStorage) === key : false;
                   return (
                     <TableRow
                       key={key}
                       className={cn("cursor-pointer", active && "bg-muted/58")}
-                      onClick={() => setSelectedStorage(row)}
+                      onClick={() => setSelectedStorage(row.original)}
                     >
-                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(row.event_time)}</TableCell>
-                      <TableCell className="break-all text-xs text-foreground">{row.item_id}</TableCell>
-                      <TableCell>{row.count}</TableCell>
-                      <TableCell>
-                        <Badge className={riskBadgeClass[row.risk_level] || statusBadgeClass.info}>{row.risk_level}</Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{formatCoords(row)}</TableCell>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   );
                 })}
@@ -406,7 +581,9 @@ export function Investigate() {
               </TableBody>
             </Table>
 
-            {scanQuery.isError && <div className="mt-4 text-sm text-destructive">{(scanQuery.error as Error).message}</div>}
+            {scanQuery.isError && (
+              <div className="mt-4 text-sm text-destructive">{(scanQuery.error as Error).message}</div>
+            )}
           </div>
 
           <div className="min-w-0">

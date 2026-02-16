@@ -1,5 +1,15 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  type ColumnDef,
+  type PaginationState,
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { TablePager } from "@/components/table-pager";
@@ -41,13 +51,20 @@ function formatEvidence(raw: string) {
   }
 }
 
+function rowKey(row: AnomalyRow) {
+  return `${row.event_time}-${row.player_name}-${row.item_id}`;
+}
+
 export function Anomalies() {
   const { settings } = useSettings();
   const [date, setDate] = React.useState(today());
   const [player, setPlayer] = React.useState("");
   const [selected, setSelected] = React.useState<AnomalyRow | null>(null);
-  const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState(50);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 50,
+  });
 
   const anomaliesQuery = useQuery({
     queryKey: ["anomalies", settings.baseUrl, settings.apiToken, date, player],
@@ -56,21 +73,83 @@ export function Anomalies() {
   });
 
   const data = anomaliesQuery.data || [];
+
+  const columns = React.useMemo<ColumnDef<AnomalyRow>[]>(
+    () => [
+      {
+        accessorKey: "event_time",
+        header: "时间",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatDateTime(row.original.event_time)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "player_name",
+        header: "玩家",
+        cell: ({ row }) => (
+          <span className="text-sm text-foreground">{row.original.player_name}</span>
+        ),
+      },
+      {
+        accessorKey: "item_id",
+        header: "物品",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground break-all">
+            {row.original.item_id}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "count",
+        header: "数量",
+      },
+      {
+        accessorKey: "risk_level",
+        header: "风险",
+        cell: ({ row }) => (
+          <Badge
+            className={
+              riskBadgeClass[row.original.risk_level] || statusBadgeClass.info
+            }
+          >
+            {row.original.risk_level}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "rule_id",
+        header: "规则",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">{row.original.rule_id}</span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: {
+      sorting,
+      pagination,
+    },
+    onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const pageState = table.getState().pagination;
   const totalRows = data.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const pageStart = (safePage - 1) * pageSize;
-  const pageRows = data.slice(pageStart, pageStart + pageSize);
+  const pageCount = Math.max(1, table.getPageCount());
 
   React.useEffect(() => {
-    setPage(1);
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [date, player, settings.baseUrl, settings.apiToken]);
-
-  React.useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   function exportCsv() {
     if (!data.length) {
@@ -106,10 +185,6 @@ export function Anomalies() {
     anchor.click();
     URL.revokeObjectURL(url);
     toast.success("已导出 CSV");
-  }
-
-  function rowKey(row: AnomalyRow) {
-    return `${row.event_time}-${row.player_name}-${row.item_id}`;
   }
 
   return (
@@ -148,29 +223,43 @@ export function Anomalies() {
           <div className="min-w-0">
             <TablePager
               totalRows={totalRows}
-              page={safePage}
-              totalPages={totalPages}
-              pageSize={pageSize}
-              onPageSizeChange={setPageSize}
-              onPrev={() => setPage((prev) => Math.max(1, prev - 1))}
-              onNext={() =>
-                setPage((prev) => Math.min(totalPages, prev + 1))
-              }
+              page={pageState.pageIndex + 1}
+              totalPages={pageCount}
+              pageSize={pageState.pageSize}
+              onPageSizeChange={(size) => {
+                table.setPageSize(size);
+                table.setPageIndex(0);
+              }}
+              onPrev={() => table.previousPage()}
+              onNext={() => table.nextPage()}
             />
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>时间</TableHead>
-                  <TableHead>玩家</TableHead>
-                  <TableHead>物品</TableHead>
-                  <TableHead>数量</TableHead>
-                  <TableHead>风险</TableHead>
-                  <TableHead>规则</TableHead>
-                </TableRow>
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id}>
+                    {group.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          header.column.getCanSort() &&
+                            "cursor-pointer select-none",
+                        )}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
-                {pageRows.map((row: AnomalyRow) => {
-                  const key = rowKey(row);
+                {table.getRowModel().rows.map((row) => {
+                  const key = rowKey(row.original);
                   const active = selected ? rowKey(selected) === key : false;
                   return (
                     <TableRow
@@ -179,30 +268,13 @@ export function Anomalies() {
                         "cursor-pointer border-border",
                         active && "bg-muted/40",
                       )}
-                      onClick={() => setSelected(row)}
+                      onClick={() => setSelected(row.original)}
                     >
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDateTime(row.event_time)}
-                      </TableCell>
-                      <TableCell className="text-sm text-foreground">
-                        {row.player_name}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground break-all">
-                        {row.item_id}
-                      </TableCell>
-                      <TableCell>{row.count}</TableCell>
-                      <TableCell>
-                        <Badge
-                          className={
-                            riskBadgeClass[row.risk_level] || statusBadgeClass.info
-                          }
-                        >
-                          {row.risk_level}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {row.rule_id}
-                      </TableCell>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   );
                 })}

@@ -13,10 +13,10 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class MonitorScheduler {
-    private final LatticeConfig config;
+    private volatile LatticeConfig config;
     private final StorageScanner storageScanner;
     private final Deque<UUID> auditQueue = new ArrayDeque<>();
-    private final Set<String> itemFilter;
+    private volatile Set<String> itemFilter;
 
     private long nextAuditAtMs;
     private boolean auditRunning;
@@ -30,6 +30,15 @@ public final class MonitorScheduler {
         this.config = config;
         this.storageScanner = new StorageScanner(config);
         this.itemFilter = config.scanItemFilter;
+    }
+
+    public void updateConfig(LatticeConfig next) {
+        if (next == null) {
+            return;
+        }
+        this.config = next;
+        this.itemFilter = next.scanItemFilter;
+        this.storageScanner.updateConfig(next);
     }
 
     public boolean requestAuditNow() {
@@ -46,23 +55,24 @@ public final class MonitorScheduler {
     }
 
     public void tick(MinecraftServer server) {
+        LatticeConfig snapshot = this.config;
         long now = System.currentTimeMillis();
         boolean shouldStartManual = auditForceRequested && !auditRunning;
         boolean shouldStartScheduled = !auditRunning
             && !auditForceRequested
-            && config.auditEnabled
-            && config.auditIntervalMinutes > 0
+            && snapshot.auditEnabled
+            && snapshot.auditIntervalMinutes > 0
             && (nextAuditAtMs == 0 || now >= nextAuditAtMs);
         if (shouldStartManual || shouldStartScheduled) {
             startAudit(server, now);
             auditForceRequested = false;
-            if (config.auditEnabled && config.auditIntervalMinutes > 0) {
-                nextAuditAtMs = now + (config.auditIntervalMinutes * 60_000L);
+            if (snapshot.auditEnabled && snapshot.auditIntervalMinutes > 0) {
+                nextAuditAtMs = now + (snapshot.auditIntervalMinutes * 60_000L);
             }
         }
 
         if (auditRunning) {
-            int budget = Math.max(1, config.auditPlayersPerTick);
+            int budget = Math.max(1, snapshot.auditPlayersPerTick);
             while (budget-- > 0 && !auditQueue.isEmpty()) {
                 UUID id = auditQueue.pollFirst();
                 if (id == null) {
@@ -73,7 +83,7 @@ public final class MonitorScheduler {
                     auditDone++;
                     continue;
                 }
-                AuditSnapshot.enqueuePlayerSnapshot(player, itemFilter);
+                AuditSnapshot.enqueuePlayerSnapshot(player, this.itemFilter);
                 auditDone++;
             }
             reportAuditProgress(now, false);
@@ -92,6 +102,10 @@ public final class MonitorScheduler {
 
     public TaskProgressSnapshot getScanProgress() {
         return storageScanner.getProgress();
+    }
+
+    public void shutdown() {
+        storageScanner.shutdown();
     }
 
     private void startAudit(MinecraftServer server, long now) {

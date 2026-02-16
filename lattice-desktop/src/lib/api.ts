@@ -4,6 +4,9 @@ import type {
   AnomalyRow,
   ItemRegistryEntry,
   KeyItemRule,
+  ModConfigAck,
+  ModConfigEnvelope,
+  ModConfigPutRequest,
   StorageScanRow,
   TaskStatus,
 } from "@/lib/types";
@@ -54,7 +57,16 @@ function normalizeTaskProgress(raw: unknown) {
     updated_at: number;
     reason_code?: string | null;
     reason_message?: string | null;
+    phase?: string | null;
+    trace_id?: string | null;
+    throughput_per_sec?: number | null;
     targets_total_by_source?: {
+      world_containers?: number;
+      sb_offline?: number;
+      rs2_offline?: number;
+      online_runtime?: number;
+    } | null;
+    done_by_source?: {
       world_containers?: number;
       sb_offline?: number;
       rs2_offline?: number;
@@ -62,6 +74,11 @@ function normalizeTaskProgress(raw: unknown) {
     } | null;
   }>;
   const sourceTotals = next?.targets_total_by_source;
+  const doneBySource = next?.done_by_source;
+  const throughput =
+    typeof next?.throughput_per_sec === "number" && Number.isFinite(next.throughput_per_sec)
+      ? next.throughput_per_sec
+      : null;
   return {
     running: Boolean(next?.running),
     total: Number(next?.total || 0),
@@ -75,12 +92,29 @@ function normalizeTaskProgress(raw: unknown) {
       typeof next?.reason_message === "string" && next.reason_message.trim()
         ? next.reason_message.trim()
         : null,
+    phase:
+      typeof next?.phase === "string" && next.phase.trim()
+        ? next.phase.trim()
+        : null,
+    trace_id:
+      typeof next?.trace_id === "string" && next.trace_id.trim()
+        ? next.trace_id.trim()
+        : null,
+    throughput_per_sec: throughput,
     targets_total_by_source: sourceTotals
       ? {
           world_containers: Number(sourceTotals.world_containers || 0),
           sb_offline: Number(sourceTotals.sb_offline || 0),
           rs2_offline: Number(sourceTotals.rs2_offline || 0),
           online_runtime: Number(sourceTotals.online_runtime || 0),
+        }
+      : null,
+    done_by_source: doneBySource
+      ? {
+          world_containers: Number(doneBySource.world_containers || 0),
+          sb_offline: Number(doneBySource.sb_offline || 0),
+          rs2_offline: Number(doneBySource.rs2_offline || 0),
+          online_runtime: Number(doneBySource.online_runtime || 0),
         }
       : null,
   };
@@ -210,6 +244,121 @@ export async function fetchTaskProgress(
   });
   const raw = await jsonOrThrow<unknown>(res);
   return normalizeTaskStatus(raw);
+}
+
+function normalizeModConfigEnvelope(raw: unknown): ModConfigEnvelope | null {
+  const next = (raw ?? {}) as Partial<ModConfigEnvelope>;
+  if (!next || typeof next !== "object") {
+    return null;
+  }
+  if (typeof next.server_id !== "string" || !next.server_id.trim()) {
+    return null;
+  }
+  if (typeof next.revision !== "number" || !Number.isFinite(next.revision)) {
+    return null;
+  }
+  const config = next.config;
+  const safeConfig =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config as Record<string, unknown>)
+      : {};
+  return {
+    server_id: next.server_id,
+    revision: next.revision,
+    updated_at_ms: Number(next.updated_at_ms || 0),
+    updated_by: typeof next.updated_by === "string" ? next.updated_by : "",
+    checksum_sha256:
+      typeof next.checksum_sha256 === "string" ? next.checksum_sha256 : "",
+    config: safeConfig,
+  };
+}
+
+function normalizeModConfigAck(raw: unknown): ModConfigAck | null {
+  const next = (raw ?? {}) as Partial<ModConfigAck>;
+  if (!next || typeof next !== "object") {
+    return null;
+  }
+  if (typeof next.server_id !== "string" || !next.server_id.trim()) {
+    return null;
+  }
+  if (typeof next.revision !== "number" || !Number.isFinite(next.revision)) {
+    return null;
+  }
+  const changedKeys = Array.isArray(next.changed_keys)
+    ? next.changed_keys.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    server_id: next.server_id,
+    revision: next.revision,
+    status: typeof next.status === "string" ? next.status : "UNKNOWN",
+    message: typeof next.message === "string" ? next.message : null,
+    applied_at_ms: Number(next.applied_at_ms || 0),
+    changed_keys: changedKeys,
+  };
+}
+
+export async function fetchModConfigCurrent(
+  baseUrl: string,
+  apiToken: string,
+  serverId: string,
+): Promise<ModConfigEnvelope | null> {
+  const query = new URLSearchParams();
+  query.set("server_id", serverId.trim() || "server-01");
+  const res = await fetch(
+    buildUrl(baseUrl, `/v2/ops/mod-config/current?${query.toString()}`),
+    {
+      headers: buildHeaders(apiToken, false),
+    },
+  );
+  const raw = await jsonOrThrow<unknown | null>(res);
+  if (!raw) {
+    return null;
+  }
+  return normalizeModConfigEnvelope(raw);
+}
+
+export async function updateModConfigCurrent(
+  baseUrl: string,
+  apiToken: string,
+  serverId: string,
+  payload: ModConfigPutRequest,
+): Promise<ModConfigEnvelope> {
+  const query = new URLSearchParams();
+  query.set("server_id", serverId.trim() || "server-01");
+  const res = await fetch(
+    buildUrl(baseUrl, `/v2/ops/mod-config/current?${query.toString()}`),
+    {
+      method: "PUT",
+      headers: buildHeaders(apiToken, true),
+      body: JSON.stringify(payload),
+    },
+  );
+  const raw = await jsonOrThrow<unknown>(res);
+  const normalized = normalizeModConfigEnvelope(raw);
+  if (!normalized) {
+    throw new Error("配置发布成功，但返回格式无效");
+  }
+  return normalized;
+}
+
+export async function fetchModConfigAckLast(
+  baseUrl: string,
+  apiToken: string,
+  serverId: string,
+): Promise<ModConfigAck | null> {
+  const query = new URLSearchParams();
+  query.set("server_id", serverId.trim() || "server-01");
+  const res = await fetch(
+    buildUrl(baseUrl, `/v2/ops/mod-config/ack/last?${query.toString()}`),
+    {
+      headers: buildHeaders(apiToken, false),
+    },
+  );
+  const raw = await jsonOrThrow<unknown | null>(res);
+  if (!raw) {
+    return null;
+  }
+  return normalizeModConfigAck(raw);
 }
 
 function normalizeAlertDelivery(raw: unknown): AlertDeliveryRecord {

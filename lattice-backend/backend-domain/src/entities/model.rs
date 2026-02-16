@@ -222,6 +222,14 @@ pub struct TaskProgress {
     pub reason_message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub targets_total_by_source: Option<TargetsTotalBySource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_by_source: Option<DoneBySource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throughput_per_sec: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -264,6 +272,14 @@ pub struct TaskProgressUpdate {
     pub reason_message: Option<String>,
     #[serde(default)]
     pub targets_total_by_source: Option<TargetsTotalBySource>,
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub done_by_source: Option<DoneBySource>,
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub throughput_per_sec: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -272,6 +288,45 @@ pub struct TargetsTotalBySource {
     pub sb_offline: u64,
     pub rs2_offline: u64,
     pub online_runtime: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DoneBySource {
+    pub world_containers: u64,
+    pub sb_offline: u64,
+    pub rs2_offline: u64,
+    pub online_runtime: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModConfigEnvelope {
+    pub server_id: String,
+    pub revision: u64,
+    pub updated_at_ms: i64,
+    pub updated_by: String,
+    pub checksum_sha256: String,
+    pub config: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModConfigPutRequest {
+    #[serde(default)]
+    pub server_id: Option<String>,
+    #[serde(default)]
+    pub updated_by: Option<String>,
+    pub config: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModConfigAck {
+    pub server_id: String,
+    pub revision: u64,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    pub applied_at_ms: i64,
+    #[serde(default)]
+    pub changed_keys: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

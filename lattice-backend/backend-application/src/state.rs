@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::ops::ModConfigStreamHub;
 use backend_domain::ports::{AlertService, AnomalyRepository, ConfigRepository, EventRepository};
 use backend_domain::services::Analyzer;
-use backend_domain::{ItemRegistryEntry, KeyItemRule, RuntimeConfig, TaskStatus};
+use backend_domain::{ItemRegistryEntry, KeyItemRule, ModConfigAck, ModConfigEnvelope, RuntimeConfig, TaskStatus};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::Metrics;
@@ -20,4 +21,7 @@ pub struct AppState {
     pub item_registry: Arc<RwLock<Vec<ItemRegistryEntry>>>,
     pub metrics: Arc<Metrics>,
     pub task_status: Arc<RwLock<TaskStatus>>,
+    pub mod_configs: Arc<RwLock<HashMap<String, ModConfigEnvelope>>>,
+    pub mod_config_acks: Arc<RwLock<HashMap<String, ModConfigAck>>>,
+    pub mod_config_stream_hub: Arc<ModConfigStreamHub>,
 }

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::collections::HashMap;
 
 use anyhow::Result;
 use clickhouse::Client;
@@ -60,6 +61,9 @@ impl AppContext {
             item_registry: Arc::new(RwLock::new(item_registry)),
             metrics: Arc::new(Metrics::default()),
             task_status: Arc::new(RwLock::new(TaskStatus::default())),
+            mod_configs: Arc::new(RwLock::new(HashMap::new())),
+            mod_config_acks: Arc::new(RwLock::new(HashMap::new())),
+            mod_config_stream_hub: Arc::new(backend_application::ops::ModConfigStreamHub::default()),
         };
 
         Ok(Self { state })

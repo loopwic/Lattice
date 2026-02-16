@@ -17,8 +17,10 @@ thiserror = { workspace = true }
 
 # Serialization (for DTOs)
 serde = { workspace = true }
+serde_json = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
+sha2 = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

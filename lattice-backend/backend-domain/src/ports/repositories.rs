@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use crate::entities::{
+    ModConfigAck,
+    ModConfigEnvelope,
     AnomalyRow,
     IngestEvent,
     ItemRegistryEntry,
@@ -45,4 +47,9 @@ pub trait ConfigRepository: Send + Sync {
 
     async fn load_rcon_config(&self) -> anyhow::Result<RconConfig>;
     async fn save_rcon_config(&self, config: &RconConfig) -> anyhow::Result<()>;
+
+    async fn load_mod_config(&self, server_id: &str) -> anyhow::Result<Option<ModConfigEnvelope>>;
+    async fn save_mod_config(&self, envelope: &ModConfigEnvelope) -> anyhow::Result<()>;
+    async fn load_mod_config_ack(&self, server_id: &str) -> anyhow::Result<Option<ModConfigAck>>;
+    async fn save_mod_config_ack(&self, ack: &ModConfigAck) -> anyhow::Result<()>;
 }

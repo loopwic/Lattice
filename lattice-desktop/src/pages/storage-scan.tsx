@@ -1,5 +1,15 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  type ColumnDef,
+  type PaginationState,
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,14 +58,21 @@ function formatStorage(row: StorageScanRow) {
   return `${mod}:${id}`;
 }
 
+function rowKey(row: StorageScanRow) {
+  return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
+}
+
 export function StorageScan() {
   const { settings } = useSettings();
   const [date, setDate] = React.useState(today());
   const [item, setItem] = React.useState("");
   const [limit, setLimit] = React.useState("200");
   const [selected, setSelected] = React.useState<StorageScanRow | null>(null);
-  const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState(50);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 50,
+  });
 
   const limitValue = Number.parseInt(limit, 10);
   const effectiveLimit = Number.isFinite(limitValue)
@@ -63,7 +80,14 @@ export function StorageScan() {
     : 200;
 
   const scanQuery = useQuery({
-    queryKey: ["storage-scan", settings.baseUrl, settings.apiToken, date, item, effectiveLimit],
+    queryKey: [
+      "storage-scan",
+      settings.baseUrl,
+      settings.apiToken,
+      date,
+      item,
+      effectiveLimit,
+    ],
     queryFn: () =>
       fetchStorageScan(
         settings.baseUrl,
@@ -75,25 +99,80 @@ export function StorageScan() {
   });
 
   const data = scanQuery.data || [];
+
+  const columns = React.useMemo<ColumnDef<StorageScanRow>[]>(
+    () => [
+      {
+        accessorKey: "event_time",
+        header: "时间",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatDateTime(row.original.event_time)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "item_id",
+        header: "物品",
+        cell: ({ row }) => (
+          <span className="break-all text-xs text-foreground">{row.original.item_id}</span>
+        ),
+      },
+      {
+        accessorKey: "count",
+        header: "数量",
+      },
+      {
+        accessorKey: "risk_level",
+        header: "风险",
+        cell: ({ row }) => (
+          <Badge className={riskBadgeClass[row.original.risk_level] || statusBadgeClass.info}>
+            {row.original.risk_level}
+          </Badge>
+        ),
+      },
+      {
+        id: "coords",
+        header: "坐标",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">{formatCoords(row.original)}</span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: {
+      sorting,
+      pagination,
+    },
+    onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const pageState = table.getState().pagination;
   const totalRows = data.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * pageSize;
-  const pageRows = data.slice(start, start + pageSize);
+  const totalPages = Math.max(1, table.getPageCount());
 
   React.useEffect(() => {
-    setPage(1);
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [date, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
 
   React.useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
+    if (selected) {
+      const exists = data.some((row) => rowKey(row) === rowKey(selected));
+      if (!exists) {
+        setSelected(null);
+      }
     }
-  }, [page, totalPages]);
-
-  function rowKey(row: StorageScanRow) {
-    return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
-  }
+  }, [data, selected]);
 
   async function handleCopy(row: StorageScanRow) {
     if (!hasCoords(row)) {
@@ -155,66 +234,57 @@ export function StorageScan() {
           <div className="min-w-0">
             <TablePager
               totalRows={totalRows}
-              page={safePage}
+              page={pageState.pageIndex + 1}
               totalPages={totalPages}
-              pageSize={pageSize}
-              onPageSizeChange={setPageSize}
-              onPrev={() => setPage((prev) => Math.max(1, prev - 1))}
-              onNext={() =>
-                setPage((prev) => Math.min(totalPages, prev + 1))
-              }
+              pageSize={pageState.pageSize}
+              onPageSizeChange={(size) => {
+                table.setPageSize(size);
+                table.setPageIndex(0);
+              }}
+              onPrev={() => table.previousPage()}
+              onNext={() => table.nextPage()}
             />
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>时间</TableHead>
-                  <TableHead>物品</TableHead>
-                  <TableHead>数量</TableHead>
-                  <TableHead>风险</TableHead>
-                  <TableHead>坐标</TableHead>
-                </TableRow>
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id}>
+                    {group.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          header.column.getCanSort() && "cursor-pointer select-none",
+                        )}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
               </TableHeader>
               <TableBody>
-                {pageRows.map((row) => {
-                  const key = rowKey(row);
+                {table.getRowModel().rows.map((row) => {
+                  const key = rowKey(row.original);
                   const active = selected ? rowKey(selected) === key : false;
                   return (
                     <TableRow
                       key={key}
-                      className={cn(
-                        "cursor-pointer border-border",
-                        active && "bg-muted/40",
-                      )}
-                      onClick={() => setSelected(row)}
+                      className={cn("cursor-pointer border-border", active && "bg-muted/40")}
+                      onClick={() => setSelected(row.original)}
                     >
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDateTime(row.event_time)}
-                      </TableCell>
-                      <TableCell className="text-xs text-foreground break-all">
-                        {row.item_id}
-                      </TableCell>
-                      <TableCell>{row.count}</TableCell>
-                      <TableCell>
-                        <Badge
-                          className={
-                            riskBadgeClass[row.risk_level] || statusBadgeClass.info
-                          }
-                        >
-                          {row.risk_level}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatCoords(row)}
-                      </TableCell>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   );
                 })}
                 {totalRows === 0 && !scanQuery.isLoading && (
                   <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="text-center text-muted-foreground"
-                    >
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
                       暂无扫描结果
                     </TableCell>
                   </TableRow>
@@ -222,9 +292,7 @@ export function StorageScan() {
               </TableBody>
             </Table>
             {scanQuery.isError && (
-              <div className="mt-4 text-sm text-primary">
-                {(scanQuery.error as Error).message}
-              </div>
+              <div className="mt-4 text-sm text-primary">{(scanQuery.error as Error).message}</div>
             )}
           </div>
           <div className="min-w-0">
@@ -240,9 +308,7 @@ export function StorageScan() {
                   <div className="mt-1 break-all">{selected.item_id}</div>
                 </div>
                 <div className="py-3">
-                  <div className="text-xs text-muted-foreground">
-                    数量 / 阈值
-                  </div>
+                  <div className="text-xs text-muted-foreground">数量 / 阈值</div>
                   <div className="mt-1">
                     {selected.count} / {selected.threshold}
                   </div>
@@ -253,14 +319,10 @@ export function StorageScan() {
                 </div>
                 <div className="py-3">
                   <div className="text-xs text-muted-foreground">容器</div>
-                  <div className="mt-1 break-all">
-                    {formatStorage(selected)}
-                  </div>
+                  <div className="mt-1 break-all">{formatStorage(selected)}</div>
                 </div>
                 <div className="py-3">
-                  <div className="text-xs text-muted-foreground">
-                    维度 / 坐标
-                  </div>
+                  <div className="text-xs text-muted-foreground">维度 / 坐标</div>
                   <div className="mt-1">
                     {selected.dim || "-"} · {formatCoords(selected)}
                   </div>

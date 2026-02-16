@@ -33,7 +33,7 @@ chrono = { version = "0.4", features = ["serde"] }
 time = { version = "0.3", features = ["serde"] }
 
 # HTTP / Web
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
 tower-http = { version = "0.5", features = ["trace", "cors", "limit", "timeout"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
@@ -49,10 +49,12 @@ futures-util = "0.3"
 
 # Utilities
 uuid = { version = "1.8", features = ["serde", "v4"] }
+sha2 = "0.10"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+tracing-appender = "0.2"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }

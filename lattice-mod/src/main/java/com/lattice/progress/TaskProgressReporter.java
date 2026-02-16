@@ -20,7 +20,7 @@ public final class TaskProgressReporter {
     }
 
     public static void report(LatticeConfig config, String task, boolean running, int total, int done) {
-        report(config, task, running, total, done, null, null, null);
+        report(config, task, running, total, done, null, null, null, null, null, null, null);
     }
 
     public static void report(
@@ -33,6 +33,36 @@ public final class TaskProgressReporter {
         String reasonMessage,
         SourceTotalsPayload targetsTotalBySource
     ) {
+        report(
+            config,
+            task,
+            running,
+            total,
+            done,
+            reasonCode,
+            reasonMessage,
+            targetsTotalBySource,
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
+    public static void report(
+        LatticeConfig config,
+        String task,
+        boolean running,
+        int total,
+        int done,
+        String reasonCode,
+        String reasonMessage,
+        SourceTotalsPayload targetsTotalBySource,
+        String phase,
+        DoneBySourcePayload doneBySource,
+        String traceId,
+        Double throughputPerSec
+    ) {
         if (config == null) {
             return;
         }
@@ -43,7 +73,11 @@ public final class TaskProgressReporter {
             done,
             reasonCode,
             reasonMessage,
-            targetsTotalBySource
+            targetsTotalBySource,
+            phase,
+            doneBySource,
+            traceId,
+            throughputPerSec
         );
         String body = GSON.toJson(payload);
         HttpRequest.Builder builder;
@@ -71,11 +105,23 @@ public final class TaskProgressReporter {
         int done,
         String reason_code,
         String reason_message,
-        SourceTotalsPayload targets_total_by_source
+        SourceTotalsPayload targets_total_by_source,
+        String phase,
+        DoneBySourcePayload done_by_source,
+        String trace_id,
+        Double throughput_per_sec
     ) {
     }
 
     public record SourceTotalsPayload(
+        int world_containers,
+        int sb_offline,
+        int rs2_offline,
+        int online_runtime
+    ) {
+    }
+
+    public record DoneBySourcePayload(
         int world_containers,
         int sb_offline,
         int rs2_offline,

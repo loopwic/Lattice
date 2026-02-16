@@ -34,6 +34,27 @@ pub fn build_router(state: AppState) -> Router {
                 .put(ops_handlers::update_task_progress),
         )
         .route(
+            "/v2/ops/mod-config/current",
+            axum::routing::get(ops_handlers::get_mod_config_current)
+                .put(ops_handlers::put_mod_config_current),
+        )
+        .route(
+            "/v2/ops/mod-config/stream",
+            axum::routing::get(ops_handlers::stream_mod_config),
+        )
+        .route(
+            "/v2/ops/mod-config/pull",
+            axum::routing::get(ops_handlers::pull_mod_config),
+        )
+        .route(
+            "/v2/ops/mod-config/ack",
+            axum::routing::post(ops_handlers::update_mod_config_ack),
+        )
+        .route(
+            "/v2/ops/mod-config/ack/last",
+            axum::routing::get(ops_handlers::get_mod_config_ack_last),
+        )
+        .route(
             "/v2/detect/storage-scan",
             axum::routing::get(detect_handlers::list_storage_scan),
         )

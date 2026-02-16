@@ -28,3 +28,4 @@ tracing = { workspace = true }
 
 # Async
 async-trait = { workspace = true }
+futures-util = { workspace = true }

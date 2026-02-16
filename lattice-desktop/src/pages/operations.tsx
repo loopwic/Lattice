@@ -389,6 +389,59 @@ export function Operations() {
     return code;
   }
 
+  function reasonSuggestion(code: string | null | undefined) {
+    if (!code) {
+      return "";
+    }
+    if (code === "NO_TARGETS") {
+      return "建议检查存档路径、SB/RS2 数据目录以及扫描开关。";
+    }
+    if (code === "WORLD_INDEX_FAILED") {
+      return "建议检查 region 文件读权限或磁盘状态，再重试离线扫描。";
+    }
+    if (code === "SB_DATA_UNAVAILABLE") {
+      return "建议确认 SophisticatedBackpacks 数据文件是否存在且可读。";
+    }
+    if (code === "RS2_DATA_UNAVAILABLE") {
+      return "建议确认 RS2 网络数据文件是否存在且可读。";
+    }
+    if (code === "HEALTH_GUARD_BLOCKED") {
+      return "建议降低并发/频率，或在低峰时段重新触发扫描。";
+    }
+    if (code === "PARTIAL_COMPLETED") {
+      return "部分来源已降级跳过，请检查不可用来源日志。";
+    }
+    return "";
+  }
+
+  function phaseLabel(phase: string | null | undefined) {
+    if (!phase) {
+      return "未知阶段";
+    }
+    if (phase === "INDEXING") {
+      return "离线索引";
+    }
+    if (phase === "OFFLINE_WORLD") {
+      return "离线世界容器扫描";
+    }
+    if (phase === "OFFLINE_SB") {
+      return "SB 离线数据扫描";
+    }
+    if (phase === "OFFLINE_RS2") {
+      return "RS2 离线数据扫描";
+    }
+    if (phase === "RUNTIME") {
+      return "在线补充扫描";
+    }
+    if (phase === "COMPLETED") {
+      return "扫描完成";
+    }
+    if (phase === "DEGRADED") {
+      return "降级完成";
+    }
+    return phase;
+  }
+
   function scanProgressLabel(
     progress: TaskProgress | undefined,
     queuedAt: number | null,
@@ -409,10 +462,11 @@ export function Operations() {
 
   function scanSourcesLabel(progress: TaskProgress | undefined) {
     const sources = progress?.targets_total_by_source;
-    if (!sources) {
-      return "来源统计: -";
+    const doneBySource = progress?.done_by_source;
+    if (!sources && !doneBySource) {
+      return "来源进度: -";
     }
-    return `来源统计: world ${sources.world_containers} / SB ${sources.sb_offline} / RS2 ${sources.rs2_offline} / runtime ${sources.online_runtime}`;
+    return `来源进度: world ${doneBySource?.world_containers ?? 0}/${sources?.world_containers ?? 0} · SB ${doneBySource?.sb_offline ?? 0}/${sources?.sb_offline ?? 0} · RS2 ${doneBySource?.rs2_offline ?? 0}/${sources?.rs2_offline ?? 0} · runtime ${doneBySource?.online_runtime ?? 0}/${sources?.online_runtime ?? 0}`;
   }
 
   function formatDeliveryStatus(delivery: AlertDeliveryRecord | null) {
@@ -658,9 +712,24 @@ export function Operations() {
                 <div className="mt-1 text-[11px] text-muted-foreground/80">
                   {scanSourcesLabel(scan)}
                 </div>
+                <div className="mt-1 text-[11px] text-muted-foreground/80">
+                  阶段: {phaseLabel(scan?.phase)}
+                  {scan?.throughput_per_sec !== null &&
+                  scan?.throughput_per_sec !== undefined
+                    ? ` · 吞吐 ${scan.throughput_per_sec.toFixed(2)}/s`
+                    : ""}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground/80">
+                  Trace: {scan?.trace_id || "-"}
+                </div>
                 {scan?.reason_code && (
                   <div className="mt-1 text-[11px] text-muted-foreground/80">
                     原因码: {scan.reason_code}（{reasonLabel(scan.reason_code)}）
+                  </div>
+                )}
+                {scan?.reason_code && (
+                  <div className="mt-1 text-[11px] text-muted-foreground/80">
+                    建议: {reasonSuggestion(scan.reason_code)}
                   </div>
                 )}
                 <div className="mt-1 text-[11px] text-muted-foreground/80">

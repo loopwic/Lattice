@@ -12,6 +12,10 @@ pub async fn update_task_progress(state: &AppState, payload: TaskProgressUpdate)
         reason_code: normalize_optional_text(payload.reason_code),
         reason_message: normalize_optional_text(payload.reason_message),
         targets_total_by_source: payload.targets_total_by_source,
+        phase: normalize_optional_text(payload.phase),
+        done_by_source: payload.done_by_source,
+        trace_id: normalize_optional_text(payload.trace_id),
+        throughput_per_sec: normalize_optional_number(payload.throughput_per_sec),
     };
     let key = payload.task.trim().to_lowercase();
     if key == "audit" {
@@ -32,5 +36,12 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
             }
         }
         None => None,
+    }
+}
+
+fn normalize_optional_number(value: Option<f64>) -> Option<f64> {
+    match value {
+        Some(raw) if raw.is_finite() && raw >= 0.0 => Some(raw),
+        _ => None,
     }
 }

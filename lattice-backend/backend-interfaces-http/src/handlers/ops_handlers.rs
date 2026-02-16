@@ -1,14 +1,21 @@
-use axum::extract::{Query, State};
+use axum::extract::{
+    ws::{Message, WebSocket, WebSocketUpgrade},
+    Query, State,
+};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
+use futures_util::StreamExt;
 use tokio::time::{timeout, Duration};
-use tracing::error;
+use tracing::{error, warn};
 
-use backend_application::commands::task_progress_commands;
-use backend_application::queries::task_progress_queries;
+use backend_application::commands::{mod_config_commands, task_progress_commands};
+use backend_application::queries::{mod_config_queries, task_progress_queries};
 use backend_application::AppState;
-use backend_domain::{AlertDeliveryRecord, RconConfig, TaskProgressUpdate, TaskStatus};
+use backend_domain::{
+    AlertDeliveryRecord, ModConfigAck, ModConfigEnvelope, ModConfigPutRequest, RconConfig,
+    TaskProgressUpdate, TaskStatus,
+};
 
 use crate::error::HttpError;
 use crate::middleware::authorize;
@@ -22,6 +29,17 @@ struct AlertStatus {
 #[derive(serde::Deserialize)]
 pub struct AlertDeliveryQuery {
     pub limit: Option<usize>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ServerIdQuery {
+    pub server_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ModConfigPullQuery {
+    pub server_id: Option<String>,
+    pub after_revision: Option<u64>,
 }
 
 pub async fn get_rcon_config(
@@ -76,6 +94,89 @@ pub async fn update_task_progress(
     }
     task_progress_commands::update_task_progress(&state, payload).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_mod_config_current(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ServerIdQuery>,
+) -> Result<Json<Option<ModConfigEnvelope>>, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    let server_id = resolve_server_id(query.server_id);
+    let value = mod_config_queries::get_mod_config(&state, &server_id).await?;
+    Ok(Json(value))
+}
+
+pub async fn put_mod_config_current(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ServerIdQuery>,
+    Json(payload): Json<ModConfigPutRequest>,
+) -> Result<Json<ModConfigEnvelope>, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    let envelope =
+        mod_config_commands::put_mod_config(&state, query.server_id, payload).await?;
+    Ok(Json(envelope))
+}
+
+pub async fn pull_mod_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ModConfigPullQuery>,
+) -> Result<Json<Option<ModConfigEnvelope>>, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    let server_id = resolve_server_id(query.server_id);
+    let value = mod_config_queries::pull_mod_config(&state, &server_id, query.after_revision).await?;
+    Ok(Json(value))
+}
+
+pub async fn update_mod_config_ack(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ModConfigAck>,
+) -> Result<StatusCode, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    mod_config_commands::save_mod_config_ack(&state, payload).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_mod_config_ack_last(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ServerIdQuery>,
+) -> Result<Json<Option<ModConfigAck>>, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    let server_id = resolve_server_id(query.server_id);
+    let ack = mod_config_queries::get_mod_config_ack(&state, &server_id).await?;
+    Ok(Json(ack))
+}
+
+pub async fn stream_mod_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ServerIdQuery>,
+    ws: WebSocketUpgrade,
+) -> Result<Response, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    let server_id = resolve_server_id(query.server_id);
+    let receiver = state.mod_config_stream_hub.subscribe(&server_id).await;
+    let initial = mod_config_queries::get_mod_config(&state, &server_id).await?;
+
+    Ok(ws.on_upgrade(move |socket| async move {
+        handle_mod_config_stream(socket, receiver, initial).await;
+    }))
 }
 
 pub async fn alert_target_check(
@@ -208,4 +309,70 @@ pub async fn metrics_prometheus(
         HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"),
     );
     (headers, payload).into_response()
+}
+
+async fn handle_mod_config_stream(
+    mut socket: WebSocket,
+    mut receiver: tokio::sync::broadcast::Receiver<ModConfigEnvelope>,
+    initial: Option<ModConfigEnvelope>,
+) {
+    if let Some(envelope) = initial {
+        if send_mod_config(&mut socket, &envelope).await.is_err() {
+            return;
+        }
+    }
+
+    loop {
+        tokio::select! {
+            next = receiver.recv() => {
+                match next {
+                    Ok(envelope) => {
+                        if send_mod_config(&mut socket, &envelope).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!("mod config stream lagged, skipped {} messages", skipped);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+            incoming = socket.next() => {
+                match incoming {
+                    Some(Ok(Message::Text(text))) => {
+                        if text.trim().eq_ignore_ascii_case("ping") {
+                            if socket.send(Message::Text("pong".into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Ping(bytes))) => {
+                        if socket.send(Message::Pong(bytes)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Err(_)) | None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+async fn send_mod_config(socket: &mut WebSocket, envelope: &ModConfigEnvelope) -> Result<(), ()> {
+    let text = serde_json::to_string(envelope).map_err(|_| ())?;
+    socket.send(Message::Text(text.into())).await.map_err(|_| ())
+}
+
+fn resolve_server_id(server_id: Option<String>) -> String {
+    let value = server_id.unwrap_or_else(|| "server-01".to_string());
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        "server-01".to_string()
+    } else {
+        trimmed.to_lowercase()
+    }
 }
