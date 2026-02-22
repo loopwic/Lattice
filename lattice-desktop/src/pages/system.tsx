@@ -40,6 +40,8 @@ type ModConfigForm = {
   api_token: string;
   server_id: string;
   rcon_host: string;
+  op_command_token_required: boolean;
+  op_command_token_secret: string;
   batch_size: number;
   flush_interval_ms: number;
   spool_dir: string;
@@ -76,6 +78,14 @@ const MOD_CONFIG_LABELS: Record<keyof ModConfigForm, Record<UiLang, string>> = {
   api_token: { zh_cn: "API Token", en_us: "API Token" },
   server_id: { zh_cn: "服务器 ID", en_us: "Server ID" },
   rcon_host: { zh_cn: "RCON 主机", en_us: "RCON Host" },
+  op_command_token_required: {
+    zh_cn: "OP 指令 Token 门禁",
+    en_us: "OP Command Token Gate",
+  },
+  op_command_token_secret: {
+    zh_cn: "OP Token 密钥",
+    en_us: "OP Token Secret",
+  },
   batch_size: { zh_cn: "事件批次大小", en_us: "Event Batch Size" },
   flush_interval_ms: { zh_cn: "事件刷新间隔(ms)", en_us: "Flush Interval (ms)" },
   spool_dir: { zh_cn: "本地缓冲目录", en_us: "Spool Directory" },
@@ -112,6 +122,8 @@ const MOD_CONFIG_DEFAULTS: ModConfigForm = {
   api_token: "",
   server_id: "server-01",
   rcon_host: "127.0.0.1",
+  op_command_token_required: false,
+  op_command_token_secret: "",
   batch_size: 200,
   flush_interval_ms: 1000,
   spool_dir: "spool",
@@ -220,6 +232,16 @@ function parseModConfigForm(rawValue: unknown): ModConfigForm {
     api_token: getString(raw, "api_token", MOD_CONFIG_DEFAULTS.api_token),
     server_id: getString(raw, "server_id", MOD_CONFIG_DEFAULTS.server_id),
     rcon_host: getString(raw, "rcon_host", MOD_CONFIG_DEFAULTS.rcon_host),
+    op_command_token_required: getBoolean(
+      raw,
+      "op_command_token_required",
+      MOD_CONFIG_DEFAULTS.op_command_token_required,
+    ),
+    op_command_token_secret: getString(
+      raw,
+      "op_command_token_secret",
+      MOD_CONFIG_DEFAULTS.op_command_token_secret,
+    ),
     batch_size: getNumber(raw, "batch_size", MOD_CONFIG_DEFAULTS.batch_size),
     flush_interval_ms: getNumber(raw, "flush_interval_ms", MOD_CONFIG_DEFAULTS.flush_interval_ms),
     spool_dir: getString(raw, "spool_dir", MOD_CONFIG_DEFAULTS.spool_dir),
@@ -268,6 +290,8 @@ function buildModConfigPayload(form: ModConfigForm, extras: Record<string, unkno
     api_token: form.api_token,
     server_id: form.server_id.trim() || MOD_CONFIG_DEFAULTS.server_id,
     rcon_host: form.rcon_host.trim() || MOD_CONFIG_DEFAULTS.rcon_host,
+    op_command_token_required: form.op_command_token_required,
+    op_command_token_secret: form.op_command_token_secret,
     batch_size: numberOr(form.batch_size, MOD_CONFIG_DEFAULTS.batch_size),
     flush_interval_ms: numberOr(
       form.flush_interval_ms,
@@ -799,6 +823,34 @@ export function System() {
                 onChange={(event) =>
                   updateModConfigField("rcon_host", event.target.value)
                 }
+              />
+            </div>
+            <div className="grid gap-2">
+              <ConfigKeyLabel lang={uiLang} field="op_command_token_required" />
+              <Select
+                value={modConfigForm.op_command_token_required ? "true" : "false"}
+                onValueChange={(value) =>
+                  updateModConfigField("op_command_token_required", value === "true")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">{tr(uiLang, "开启", "Enabled")}</SelectItem>
+                  <SelectItem value="false">{tr(uiLang, "关闭", "Disabled")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <ConfigKeyLabel lang={uiLang} field="op_command_token_secret" />
+              <Input
+                type="password"
+                value={modConfigForm.op_command_token_secret}
+                onChange={(event) =>
+                  updateModConfigField("op_command_token_secret", event.target.value)
+                }
+                placeholder={tr(uiLang, "留空表示禁用签名校验", "Empty means no signing key")}
               />
             </div>
             <div className="grid gap-2">
