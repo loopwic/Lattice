@@ -4,6 +4,7 @@ import com.lattice.config.LatticeConfig;
 import com.lattice.config.RuntimeConfigStore;
 import com.lattice.config.sync.ConfigSyncManager;
 import com.lattice.commands.LatticeCommands;
+import com.lattice.auth.OpCommandTokenManager;
 import com.lattice.events.EventQueue;
 import com.lattice.integrations.IntegrationManager;
 import com.lattice.logging.StructuredOpsLogger;
@@ -29,12 +30,14 @@ public class Lattice implements ModInitializer {
     private static EventQueue eventQueue;
     private static MonitorScheduler scheduler;
     private static ConfigSyncManager configSyncManager;
+    private static OpCommandTokenManager opCommandTokenManager;
 
     @Override
     public void onInitialize() {
         config = LatticeConfig.load();
         configStore = new RuntimeConfigStore(config);
         eventQueue = new EventQueue(config);
+        opCommandTokenManager = new OpCommandTokenManager(FabricLoader.getInstance().getConfigDir());
         IntegrationManager.initialize(config, eventQueue);
         LatticeCommands.register();
         scheduler = new MonitorScheduler(config);
@@ -78,6 +81,10 @@ public class Lattice implements ModInitializer {
 
     public static MonitorScheduler getScheduler() {
         return scheduler;
+    }
+
+    public static OpCommandTokenManager getOpCommandTokenManager() {
+        return opCommandTokenManager;
     }
 
     public static synchronized void applyConfig(LatticeConfig next, String source) {

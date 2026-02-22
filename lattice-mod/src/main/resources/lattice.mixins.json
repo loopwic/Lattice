@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "AbstractContainerMenuMixin",
+    "CommandsMixin",
     "FurnaceResultSlotMixin",
     "InventoryMixin",
     "ItemEntityMixin",

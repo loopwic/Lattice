@@ -52,6 +52,8 @@ public class LatticeConfig {
     public final int registryUploadChunkSize;
     public final java.util.List<String> registryUploadLanguages;
     public final java.util.Set<String> scanItemFilter;
+    public final boolean opCommandTokenRequired;
+    public final String opCommandTokenSecret;
     public final String opsLogLevel;
 
     private LatticeConfig(
@@ -87,6 +89,8 @@ public class LatticeConfig {
         int registryUploadChunkSize,
         java.util.List<String> registryUploadLanguages,
         java.util.Set<String> scanItemFilter,
+        boolean opCommandTokenRequired,
+        String opCommandTokenSecret,
         String opsLogLevel
     ) {
         this.backendUrl = backendUrl;
@@ -121,6 +125,8 @@ public class LatticeConfig {
         this.registryUploadChunkSize = registryUploadChunkSize;
         this.registryUploadLanguages = registryUploadLanguages;
         this.scanItemFilter = scanItemFilter;
+        this.opCommandTokenRequired = opCommandTokenRequired;
+        this.opCommandTokenSecret = opCommandTokenSecret == null ? "" : opCommandTokenSecret.trim();
         this.opsLogLevel = normalizeLogLevel(opsLogLevel);
     }
 
@@ -203,6 +209,8 @@ public class LatticeConfig {
         int registryUploadChunkSize = getInt(json, "registry_upload_chunk_size", defaults.registryUploadChunkSize);
         java.util.List<String> registryUploadLanguages = getStringList(json, "registry_upload_languages", defaults.registryUploadLanguages);
         java.util.Set<String> scanItemFilter = getStringSet(json, "scan_item_filter", defaults.scanItemFilter);
+        boolean opCommandTokenRequired = getBoolean(json, "op_command_token_required", defaults.opCommandTokenRequired);
+        String opCommandTokenSecret = getString(json, "op_command_token_secret", defaults.opCommandTokenSecret);
         String opsLogLevel = getString(json, "ops_log_level", defaults.opsLogLevel);
 
         Path spoolPath = spoolDir.trim().isEmpty() ? defaults.spoolDir : configDir.resolve(spoolDir);
@@ -240,6 +248,8 @@ public class LatticeConfig {
             registryUploadChunkSize,
             registryUploadLanguages,
             scanItemFilter,
+            opCommandTokenRequired,
+            opCommandTokenSecret,
             opsLogLevel
         );
     }
@@ -281,6 +291,8 @@ public class LatticeConfig {
         obj.addProperty("scan_include_online_runtime", scanIncludeOnlineRuntime);
         obj.addProperty("registry_upload_enabled", registryUploadEnabled);
         obj.addProperty("registry_upload_chunk_size", registryUploadChunkSize);
+        obj.addProperty("op_command_token_required", opCommandTokenRequired);
+        obj.addProperty("op_command_token_secret", opCommandTokenSecret);
         obj.addProperty("ops_log_level", opsLogLevel);
 
         JsonArray langs = new JsonArray();
@@ -341,6 +353,8 @@ public class LatticeConfig {
             "registry_upload_chunk_size = " + registryUploadChunkSize,
             "registry_upload_languages = [" + languages + "]",
             "scan_item_filter = [" + filter + "]",
+            "op_command_token_required = " + opCommandTokenRequired,
+            "op_command_token_secret = \"" + opCommandTokenSecret + "\"",
             "ops_log_level = \"" + opsLogLevel + "\""
         ) + "\n";
     }
@@ -376,6 +390,8 @@ public class LatticeConfig {
         Boolean scanIncludeOnlineRuntime = result.getBoolean("scan_include_online_runtime");
         Boolean registryUploadEnabled = result.getBoolean("registry_upload_enabled");
         Long registryUploadChunkSize = result.getLong("registry_upload_chunk_size");
+        Boolean opCommandTokenRequired = result.getBoolean("op_command_token_required");
+        String opCommandTokenSecret = result.getString("op_command_token_secret");
         String opsLogLevel = result.getString("ops_log_level");
         TomlArray registryUploadLanguagesArray = result.getArray("registry_upload_languages");
         TomlArray scanItemFilterArray = result.getArray("scan_item_filter");
@@ -440,6 +456,8 @@ public class LatticeConfig {
             registryUploadChunkSize != null ? registryUploadChunkSize.intValue() : defaults.registryUploadChunkSize,
             registryUploadLanguages,
             scanItemFilter,
+            opCommandTokenRequired != null ? opCommandTokenRequired : defaults.opCommandTokenRequired,
+            opCommandTokenSecret != null ? opCommandTokenSecret : defaults.opCommandTokenSecret,
             opsLogLevel != null ? opsLogLevel : defaults.opsLogLevel
         );
     }
@@ -478,6 +496,8 @@ public class LatticeConfig {
             500,
             java.util.List.of("zh_cn", "en_us"),
             java.util.Collections.emptySet(),
+            false,
+            "",
             "INFO"
         );
     }
