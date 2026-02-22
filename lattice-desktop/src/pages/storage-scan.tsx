@@ -32,7 +32,11 @@ import type { StorageScanRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function hasCoords(row: StorageScanRow) {
@@ -59,7 +63,11 @@ function formatStorage(row: StorageScanRow) {
 }
 
 function rowKey(row: StorageScanRow) {
-  return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
+  return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.storage_mod}-${row.count}-${row.threshold}-${row.risk_level}-${row.dim}-${row.x}-${row.y}-${row.z}`;
+}
+
+function isDateValue(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 export function StorageScan() {
@@ -73,6 +81,10 @@ export function StorageScan() {
     pageIndex: 0,
     pageSize: 50,
   });
+
+  const handleDateChange = React.useCallback((value: string) => {
+    setDate(value);
+  }, []);
 
   const limitValue = Number.parseInt(limit, 10);
   const effectiveLimit = Number.isFinite(limitValue)
@@ -88,6 +100,7 @@ export function StorageScan() {
       item,
       effectiveLimit,
     ],
+    enabled: isDateValue(date),
     queryFn: () =>
       fetchStorageScan(
         settings.baseUrl,
@@ -160,10 +173,18 @@ export function StorageScan() {
   const pageState = table.getState().pagination;
   const totalRows = data.length;
   const totalPages = Math.max(1, table.getPageCount());
+  const maxPageIndex = Math.max(0, totalPages - 1);
+  const safePage = Math.min(pageState.pageIndex + 1, totalPages);
 
   React.useEffect(() => {
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [date, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (pageState.pageIndex > maxPageIndex) {
+      table.setPageIndex(maxPageIndex);
+    }
+  }, [maxPageIndex, pageState.pageIndex, table]);
 
   React.useEffect(() => {
     if (selected) {
@@ -201,7 +222,8 @@ export function StorageScan() {
             <Input
               type="date"
               value={date}
-              onChange={(event) => setDate(event.target.value)}
+              onInput={(event) => handleDateChange(event.currentTarget.value)}
+              onChange={(event) => handleDateChange(event.currentTarget.value)}
             />
           </div>
           <div className="grid gap-2">
@@ -234,9 +256,11 @@ export function StorageScan() {
           <div className="min-w-0">
             <TablePager
               totalRows={totalRows}
-              page={pageState.pageIndex + 1}
+              page={safePage}
               totalPages={totalPages}
               pageSize={pageState.pageSize}
+              canPrev={table.getCanPreviousPage()}
+              canNext={table.getCanNextPage()}
               onPageSizeChange={(size) => {
                 table.setPageSize(size);
                 table.setPageIndex(0);
@@ -266,11 +290,11 @@ export function StorageScan() {
               </TableHeader>
               <TableBody>
                 {table.getRowModel().rows.map((row) => {
-                  const key = rowKey(row.original);
-                  const active = selected ? rowKey(selected) === key : false;
+                  const identity = rowKey(row.original);
+                  const active = selected ? rowKey(selected) === identity : false;
                   return (
                     <TableRow
-                      key={key}
+                      key={row.id}
                       className={cn("cursor-pointer border-border", active && "bg-muted/40")}
                       onClick={() => setSelected(row.original)}
                     >

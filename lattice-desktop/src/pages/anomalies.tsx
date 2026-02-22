@@ -32,7 +32,11 @@ import type { AnomalyRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function escapeCsv(value: string | number | null | undefined) {
@@ -52,7 +56,11 @@ function formatEvidence(raw: string) {
 }
 
 function rowKey(row: AnomalyRow) {
-  return `${row.event_time}-${row.player_name}-${row.item_id}`;
+  return `${row.event_time}-${row.player_name}-${row.item_id}-${row.count}-${row.risk_level}-${row.rule_id}-${row.reason}`;
+}
+
+function isDateValue(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 export function Anomalies() {
@@ -66,8 +74,13 @@ export function Anomalies() {
     pageSize: 50,
   });
 
+  const handleDateChange = React.useCallback((value: string) => {
+    setDate(value);
+  }, []);
+
   const anomaliesQuery = useQuery({
     queryKey: ["anomalies", settings.baseUrl, settings.apiToken, date, player],
+    enabled: isDateValue(date),
     queryFn: () =>
       fetchAnomalies(settings.baseUrl, settings.apiToken, date, player.trim() || undefined),
   });
@@ -146,10 +159,18 @@ export function Anomalies() {
   const pageState = table.getState().pagination;
   const totalRows = data.length;
   const pageCount = Math.max(1, table.getPageCount());
+  const maxPageIndex = Math.max(0, pageCount - 1);
+  const safePage = Math.min(pageState.pageIndex + 1, pageCount);
 
   React.useEffect(() => {
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [date, player, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (pageState.pageIndex > maxPageIndex) {
+      table.setPageIndex(maxPageIndex);
+    }
+  }, [maxPageIndex, pageState.pageIndex, table]);
 
   function exportCsv() {
     if (!data.length) {
@@ -202,7 +223,8 @@ export function Anomalies() {
             <Input
               type="date"
               value={date}
-              onChange={(event) => setDate(event.target.value)}
+              onInput={(event) => handleDateChange(event.currentTarget.value)}
+              onChange={(event) => handleDateChange(event.currentTarget.value)}
             />
           </div>
           <div className="grid gap-2">
@@ -223,9 +245,11 @@ export function Anomalies() {
           <div className="min-w-0">
             <TablePager
               totalRows={totalRows}
-              page={pageState.pageIndex + 1}
+              page={safePage}
               totalPages={pageCount}
               pageSize={pageState.pageSize}
+              canPrev={table.getCanPreviousPage()}
+              canNext={table.getCanNextPage()}
               onPageSizeChange={(size) => {
                 table.setPageSize(size);
                 table.setPageIndex(0);
@@ -259,11 +283,11 @@ export function Anomalies() {
               </TableHeader>
               <TableBody>
                 {table.getRowModel().rows.map((row) => {
-                  const key = rowKey(row.original);
-                  const active = selected ? rowKey(selected) === key : false;
+                  const identity = rowKey(row.original);
+                  const active = selected ? rowKey(selected) === identity : false;
                   return (
                     <TableRow
-                      key={key}
+                      key={row.id}
                       className={cn(
                         "cursor-pointer border-border",
                         active && "bg-muted/40",

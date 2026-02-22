@@ -14,6 +14,8 @@ type TablePagerProps = {
   page: number;
   totalPages: number;
   pageSize: number;
+  canPrev?: boolean;
+  canNext?: boolean;
   onPageSizeChange: (size: number) => void;
   onPrev: () => void;
   onNext: () => void;
@@ -27,11 +29,16 @@ export function TablePager({
   page,
   totalPages,
   pageSize,
+  canPrev,
+  canNext,
   onPageSizeChange,
   onPrev,
   onNext,
   className,
 }: TablePagerProps) {
+  const prevDisabled = canPrev === undefined ? page <= 1 : !canPrev;
+  const nextDisabled = canNext === undefined ? page >= totalPages : !canNext;
+
   return (
     <div
       className={cn(
@@ -69,7 +76,7 @@ export function TablePager({
         <Button
           size="sm"
           variant="ghost"
-          disabled={page <= 1}
+          disabled={prevDisabled}
           onClick={onPrev}
           className="h-7 w-7 rounded-md border border-border/60 bg-background p-0 hover:bg-muted"
           aria-label="上一页"
@@ -80,7 +87,7 @@ export function TablePager({
         <Button
           size="sm"
           variant="ghost"
-          disabled={page >= totalPages}
+          disabled={nextDisabled}
           onClick={onNext}
           className="h-7 w-7 rounded-md border border-border/60 bg-background p-0 hover:bg-muted"
           aria-label="下一页"

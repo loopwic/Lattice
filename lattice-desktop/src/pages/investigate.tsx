@@ -34,7 +34,11 @@ import type { AnomalyRow, StorageScanRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function escapeCsv(value: string | number | null | undefined) {
@@ -77,11 +81,15 @@ function formatStorage(row: StorageScanRow) {
 }
 
 function anomalyRowKey(row: AnomalyRow) {
-  return `${row.event_time}-${row.player_name}-${row.item_id}`;
+  return `${row.event_time}-${row.player_name}-${row.item_id}-${row.count}-${row.risk_level}-${row.rule_id}-${row.reason}`;
 }
 
 function scanRowKey(row: StorageScanRow) {
-  return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.x}-${row.z}`;
+  return `${row.event_time}-${row.item_id}-${row.storage_id}-${row.storage_mod}-${row.count}-${row.threshold}-${row.risk_level}-${row.dim}-${row.x}-${row.y}-${row.z}`;
+}
+
+function isDateValue(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 export function Investigate() {
@@ -110,8 +118,17 @@ export function Investigate() {
     pageSize: 50,
   });
 
+  const handleAnomalyDateChange = React.useCallback((value: string) => {
+    setAnomalyDate(value);
+  }, []);
+
+  const handleScanDateChange = React.useCallback((value: string) => {
+    setScanDate(value);
+  }, []);
+
   const anomaliesQuery = useQuery({
     queryKey: ["anomalies", settings.baseUrl, settings.apiToken, anomalyDate, player],
+    enabled: isDateValue(anomalyDate),
     queryFn: () =>
       fetchAnomalies(
         settings.baseUrl,
@@ -137,6 +154,7 @@ export function Investigate() {
       item,
       effectiveLimit,
     ],
+    enabled: isDateValue(scanDate),
     queryFn: () =>
       fetchStorageScan(
         settings.baseUrl,
@@ -264,10 +282,14 @@ export function Investigate() {
   const anomalyPageState = anomalyTable.getState().pagination;
   const anomalyTotalRows = anomaliesData.length;
   const anomalyTotalPages = Math.max(1, anomalyTable.getPageCount());
+  const anomalyMaxPageIndex = Math.max(0, anomalyTotalPages - 1);
+  const anomalySafePage = Math.min(anomalyPageState.pageIndex + 1, anomalyTotalPages);
 
   const scanPageState = scanTable.getState().pagination;
   const scanTotalRows = scanData.length;
   const scanTotalPages = Math.max(1, scanTable.getPageCount());
+  const scanMaxPageIndex = Math.max(0, scanTotalPages - 1);
+  const scanSafePage = Math.min(scanPageState.pageIndex + 1, scanTotalPages);
 
   React.useEffect(() => {
     setAnomalyPagination((prev) => ({ ...prev, pageIndex: 0 }));
@@ -276,6 +298,18 @@ export function Investigate() {
   React.useEffect(() => {
     setScanPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [scanDate, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
+
+  React.useEffect(() => {
+    if (anomalyPageState.pageIndex > anomalyMaxPageIndex) {
+      anomalyTable.setPageIndex(anomalyMaxPageIndex);
+    }
+  }, [anomalyMaxPageIndex, anomalyPageState.pageIndex, anomalyTable]);
+
+  React.useEffect(() => {
+    if (scanPageState.pageIndex > scanMaxPageIndex) {
+      scanTable.setPageIndex(scanMaxPageIndex);
+    }
+  }, [scanMaxPageIndex, scanPageState.pageIndex, scanTable]);
 
   React.useEffect(() => {
     if (selectedAnomaly) {
@@ -380,7 +414,12 @@ export function Investigate() {
         <div className="mb-5 grid gap-4 md:grid-cols-2">
           <div className="grid gap-2">
             <Label>日期</Label>
-            <Input type="date" value={anomalyDate} onChange={(event) => setAnomalyDate(event.target.value)} />
+            <Input
+              type="date"
+              value={anomalyDate}
+              onInput={(event) => handleAnomalyDateChange(event.currentTarget.value)}
+              onChange={(event) => handleAnomalyDateChange(event.currentTarget.value)}
+            />
           </div>
           <div className="grid gap-2">
             <Label>玩家名（可选）</Label>
@@ -392,9 +431,11 @@ export function Investigate() {
           <div className="min-w-0">
             <TablePager
               totalRows={anomalyTotalRows}
-              page={anomalyPageState.pageIndex + 1}
+              page={anomalySafePage}
               totalPages={anomalyTotalPages}
               pageSize={anomalyPageState.pageSize}
+              canPrev={anomalyTable.getCanPreviousPage()}
+              canNext={anomalyTable.getCanNextPage()}
               onPageSizeChange={(size) => {
                 anomalyTable.setPageSize(size);
                 anomalyTable.setPageIndex(0);
@@ -422,11 +463,11 @@ export function Investigate() {
               </TableHeader>
               <TableBody>
                 {anomalyTable.getRowModel().rows.map((row) => {
-                  const key = anomalyRowKey(row.original);
-                  const active = selectedAnomaly ? anomalyRowKey(selectedAnomaly) === key : false;
+                  const identity = anomalyRowKey(row.original);
+                  const active = selectedAnomaly ? anomalyRowKey(selectedAnomaly) === identity : false;
                   return (
                     <TableRow
-                      key={key}
+                      key={row.id}
                       className={cn("cursor-pointer", active && "bg-muted/58")}
                       onClick={() => setSelectedAnomaly(row.original)}
                     >
@@ -505,7 +546,12 @@ export function Investigate() {
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           <div className="grid gap-2">
             <Label>日期</Label>
-            <Input type="date" value={scanDate} onChange={(event) => setScanDate(event.target.value)} />
+            <Input
+              type="date"
+              value={scanDate}
+              onInput={(event) => handleScanDateChange(event.currentTarget.value)}
+              onChange={(event) => handleScanDateChange(event.currentTarget.value)}
+            />
           </div>
           <div className="grid gap-2">
             <Label>物品 ID（可选）</Label>
@@ -525,9 +571,11 @@ export function Investigate() {
           <div className="min-w-0">
             <TablePager
               totalRows={scanTotalRows}
-              page={scanPageState.pageIndex + 1}
+              page={scanSafePage}
               totalPages={scanTotalPages}
               pageSize={scanPageState.pageSize}
+              canPrev={scanTable.getCanPreviousPage()}
+              canNext={scanTable.getCanNextPage()}
               onPageSizeChange={(size) => {
                 scanTable.setPageSize(size);
                 scanTable.setPageIndex(0);
@@ -555,11 +603,11 @@ export function Investigate() {
               </TableHeader>
               <TableBody>
                 {scanTable.getRowModel().rows.map((row) => {
-                  const key = scanRowKey(row.original);
-                  const active = selectedStorage ? scanRowKey(selectedStorage) === key : false;
+                  const identity = scanRowKey(row.original);
+                  const active = selectedStorage ? scanRowKey(selectedStorage) === identity : false;
                   return (
                     <TableRow
-                      key={key}
+                      key={row.id}
                       className={cn("cursor-pointer", active && "bg-muted/58")}
                       onClick={() => setSelectedStorage(row.original)}
                     >
