@@ -26,6 +26,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 
@@ -33,9 +35,14 @@ public class EventQueue {
     private static final Logger LOGGER = Lattice.LOGGER;
     private static final Gson GSON = new GsonBuilder().serializeNulls().create();
     private static final String INGEST_PATH = "/v2/ingest/events";
+    private static final int MAX_BUFFERED_EVENTS = 50_000;
+    private static final long DROP_LOG_INTERVAL_MS = 5_000L;
 
     private volatile LatticeConfig config;
     private final Queue<EventPayload> buffer = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger bufferedCount = new AtomicInteger();
+    private final AtomicLong droppedEvents = new AtomicLong();
+    private volatile long lastDropLogAtMs = 0L;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "lattice-sender");
         thread.setDaemon(true);
@@ -73,7 +80,42 @@ public class EventQueue {
     }
 
     public void enqueue(EventPayload payload) {
-        buffer.add(payload);
+        if (payload == null) {
+            return;
+        }
+        while (true) {
+            int current = bufferedCount.get();
+            if (current >= MAX_BUFFERED_EVENTS) {
+                recordDroppedEvents(1L);
+                return;
+            }
+            if (bufferedCount.compareAndSet(current, current + 1)) {
+                buffer.add(payload);
+                return;
+            }
+        }
+    }
+
+    private void recordDroppedEvents(long count) {
+        long totalDropped = droppedEvents.addAndGet(count);
+        long now = System.currentTimeMillis();
+        if ((now - lastDropLogAtMs) < DROP_LOG_INTERVAL_MS) {
+            return;
+        }
+        lastDropLogAtMs = now;
+        LOGGER.warn("Event buffer full, dropped {} events (total dropped={})", count, totalDropped);
+        StructuredOpsLogger.warn(
+            "event_queue_drop",
+            Map.of(
+                "dropped_now", count,
+                "dropped_total", totalDropped,
+                "buffer_limit", MAX_BUFFERED_EVENTS
+            )
+        );
+    }
+
+    public int getBufferedCount() {
+        return bufferedCount.get();
     }
 
     public void shutdown() {
@@ -97,7 +139,7 @@ public class EventQueue {
     private void flush(LatticeConfig snapshot) {
         try {
             resendSpool(snapshot);
-            if (buffer.isEmpty()) {
+            if (bufferedCount.get() == 0) {
                 return;
             }
             List<EventPayload> batch = new ArrayList<>();
@@ -106,6 +148,7 @@ public class EventQueue {
                 if (payload == null) {
                     break;
                 }
+                bufferedCount.decrementAndGet();
                 batch.add(payload);
             }
             if (batch.isEmpty()) {
