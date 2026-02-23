@@ -1,3 +1,9 @@
+## [0.2.6](https://github.com/loopwic/Lattice/compare/v0.2.5...v0.2.6) (2026-02-23)
+
+### Bug Fixes
+
+* **auth:** gate all player commands requiring op level >=2 ([9c10a3b](https://github.com/loopwic/Lattice/commit/9c10a3b52f623933b08f469e44a76e75fb61fb6e))
+
 ## [0.2.5](https://github.com/loopwic/Lattice/compare/v0.2.4...v0.2.5) (2026-02-23)
 
 ### Bug Fixes
