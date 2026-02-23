@@ -1,3 +1,9 @@
+## [0.2.2](https://github.com/loopwic/Lattice/compare/v0.2.1...v0.2.2) (2026-02-23)
+
+### Bug Fixes
+
+* **ci:** do not skip release workflows on semantic release commit ([6942e48](https://github.com/loopwic/Lattice/commit/6942e48e8d465c5e20fda4488456ab1f0c89df80))
+
 ## [0.2.1](https://github.com/loopwic/Lattice/compare/v0.2.0...v0.2.1) (2026-02-23)
 
 ### Bug Fixes
