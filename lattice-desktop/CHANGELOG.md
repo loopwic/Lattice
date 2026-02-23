@@ -1,3 +1,9 @@
+## [0.2.1](https://github.com/loopwic/Lattice/compare/v0.2.0...v0.2.1) (2026-02-23)
+
+### Bug Fixes
+
+* **lattice-desktop:** sync pnpm lockfile for release deps ([bf3cb36](https://github.com/loopwic/Lattice/commit/bf3cb361e43470acc9442edef85eb11a5a3f0342))
+
 ## [0.2.0](https://github.com/loopwic/Lattice/compare/v0.1.3...v0.2.0) (2026-02-23)
 
 ### Features
