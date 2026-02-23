@@ -13,10 +13,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  semantic_release:
     name: semantic-release
     runs-on: ubuntu-latest
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
+    outputs:
+      release_published: ${{ steps.semantic.outputs.new_release_published }}
+      release_tag: ${{ steps.semantic.outputs.new_release_git_tag }}
+      release_version: ${{ steps.semantic.outputs.new_release_version }}
 
     steps:
       - name: Checkout
@@ -36,7 +40,189 @@ jobs:
         run: npm ci
 
       - name: Run semantic-release
-        working-directory: lattice-desktop
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          working_directory: lattice-desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    needs: semantic_release
+    if: needs.semantic_release.outputs.release_published == 'true'
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_INCREMENTAL: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.semantic_release.outputs.release_tag }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: lattice-desktop/pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.1
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            lattice-desktop/src-tauri -> target
+          shared-key: lattice-desktop-${{ matrix.target }}
+
+      - name: Install Windows bundlers
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
+
+      - name: Install desktop dependencies
+        working-directory: lattice-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build macOS app bundle
+        if: runner.os == 'macOS'
+        working-directory: lattice-desktop
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app
+
+      - name: Build macOS dmg
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(node -e "console.log(require('./lattice-desktop/src-tauri/tauri.conf.json').version)")
+          BUNDLE_ROOT="lattice-desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          APP_PATH="${BUNDLE_ROOT}/macos/Lattice.app"
+          DMG_DIR="${BUNDLE_ROOT}/dmg"
+          DMG_PATH="${DMG_DIR}/Lattice_${APP_VERSION}_aarch64.dmg"
+
+          mkdir -p "${DMG_DIR}"
+          STAGE_DIR="$(mktemp -d)"
+          cp -R "${APP_PATH}" "${STAGE_DIR}/"
+          hdiutil create \
+            -volname "Lattice" \
+            -srcfolder "${STAGE_DIR}" \
+            -ov \
+            -format UDZO \
+            "${DMG_PATH}"
+          rm -rf "${STAGE_DIR}"
+
+      - name: Build Windows installers
+        if: runner.os == 'Windows'
+        working-directory: lattice-desktop
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis
+
+      - name: Upload macOS artifacts
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            lattice-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            lattice-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Lattice.app
+
+      - name: Upload Windows artifacts
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            lattice-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            lattice-desktop/src-tauri/target/${{ matrix.target }}/release/lattice-desktop.exe
+
+  mod:
+    name: Mod (Java 21)
+    needs: semantic_release
+    if: needs.semantic_release.outputs.release_published == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.semantic_release.outputs.release_tag }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Build mod
+        working-directory: lattice-mod
+        run: ./gradlew build --no-daemon
+
+      - name: Upload mod artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-jars
+          if-no-files-found: error
+          path: lattice-mod/build/libs/*.jar
+
+  publish_release_assets:
+    name: Publish GitHub Release Assets
+    needs:
+      - semantic_release
+      - desktop
+      - mod
+    if: needs.semantic_release.outputs.release_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-dist
+          while IFS= read -r -d '' file; do
+            cp "$file" release-dist/
+          done < <(find release-assets -type f \
+            \( -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.jar' \) \
+            -print0)
+
+          if [ -z "$(ls -A release-dist)" ]; then
+            echo "No release assets collected"
+            exit 1
+          fi
+
+          (cd release-dist && sha256sum * > SHA256SUMS.txt)
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.semantic_release.outputs.release_tag }}
+          generate_release_notes: true
+          files: |
+            release-dist/*

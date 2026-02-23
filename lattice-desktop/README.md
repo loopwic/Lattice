@@ -28,12 +28,16 @@ npm run tauri build
 - Release is automated by semantic-release.
 - Workflow: `.github/workflows/lattice-semantic-release.yml`
 - Trigger: push to `main` with Conventional Commits (`feat:`, `fix:`, `perf:`, `refactor:`...).
-- semantic-release will:
+- The workflow runs the full release pipeline in one place:
+  - run semantic-release and create release tag `vX.Y.Z`
+  - build desktop installers (macOS + Windows) and mod artifacts
+  - upload compiled artifacts to the GitHub Release of that tag
+- semantic-release itself will:
   - create/update `CHANGELOG.md`
   - bump `package.json` and `package-lock.json`
   - sync version to `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
-- create a Git tag in format `vX.Y.Z`
-- Tag push (`v*`) triggers `.github/workflows/lattice-packages.yml` to build installers and publish GitHub Release assets.
+- Rust build cache and incremental compilation are enabled in release workflow to reduce repeated build time.
+- `.github/workflows/lattice-packages.yml` is retained as manual backfill packaging workflow (`workflow_dispatch`) for an existing tag.
 
 Local verification:
 
