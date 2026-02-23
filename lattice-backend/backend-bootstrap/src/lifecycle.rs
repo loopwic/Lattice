@@ -15,6 +15,7 @@ use backend_infrastructure::schedule_reports;
 use backend_interfaces_http::build_router;
 
 use crate::context::AppContext;
+use crate::napcat_bridge::spawn_napcat_ws_bridge;
 
 pub struct BackendHandle {
     shutdown_tx: Option<oneshot::Sender<()>>,
@@ -49,6 +50,7 @@ pub async fn run_standalone() -> Result<()> {
     let state = context.state;
 
     tokio::spawn(schedule_reports(state.clone()));
+    spawn_napcat_ws_bridge(state.clone());
 
     let app = build_router_with_layers(state.clone());
     let addr: std::net::SocketAddr = state.config.bind_addr.parse()?;
@@ -132,6 +134,7 @@ async fn run_embedded_with_shutdown(
     let state = context.state;
 
     tokio::spawn(schedule_reports(state.clone()));
+    spawn_napcat_ws_bridge(state.clone());
 
     let app = build_router_with_layers(state.clone());
     let addr: std::net::SocketAddr = match state.config.bind_addr.parse() {
