@@ -1,3 +1,9 @@
+## [0.2.12](https://github.com/loopwic/Lattice/compare/v0.2.11...v0.2.12) (2026-02-23)
+
+### Bug Fixes
+
+* **release:** harden mac dmg build and improve message templates ([e5bbf29](https://github.com/loopwic/Lattice/commit/e5bbf299455a257329a3fc3f5dae8cfd0f3903c4))
+
 ## [0.2.11](https://github.com/loopwic/Lattice/compare/v0.2.10...v0.2.11) (2026-02-23)
 
 ### Bug Fixes
