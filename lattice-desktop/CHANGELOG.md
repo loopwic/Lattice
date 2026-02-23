@@ -1,3 +1,10 @@
+## [0.2.11](https://github.com/loopwic/Lattice/compare/v0.2.10...v0.2.11) (2026-02-23)
+
+### Bug Fixes
+
+* **napcat:** handle /申请token over websocket event stream ([c73a18d](https://github.com/loopwic/Lattice/commit/c73a18d2cdf530a4434996a0b40de79da9d5f8fd))
+* **napcat:** use alert_webhook_url as single ws source ([a99c551](https://github.com/loopwic/Lattice/commit/a99c551f5da76df0469edd94d4740ded55428441))
+
 ## [0.2.10](https://github.com/loopwic/Lattice/compare/v0.2.9...v0.2.10) (2026-02-23)
 
 ### Bug Fixes
