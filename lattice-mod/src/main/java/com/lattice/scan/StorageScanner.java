@@ -68,14 +68,24 @@ public final class StorageScanner {
     private static final String REASON_SB_DATA_UNAVAILABLE = "SB_DATA_UNAVAILABLE";
     private static final String REASON_RS2_DATA_UNAVAILABLE = "RS2_DATA_UNAVAILABLE";
     private static final String REASON_HEALTH_GUARD_BLOCKED = "HEALTH_GUARD_BLOCKED";
-    private static final String REASON_PARTIAL_COMPLETED = "PARTIAL_COMPLETED";
+    private static final String REASON_WORLD_DIR_SUBMIT_FAILED = "WORLD_DIR_SUBMIT_FAILED";
+    private static final String REASON_WORLD_REGION_SUBMIT_FAILED = "WORLD_REGION_SUBMIT_FAILED";
+    private static final String REASON_WORLD_RESULT_FAILED = "WORLD_RESULT_FAILED";
+    private static final String REASON_WORLD_QUEUE_OVERFLOW = "WORLD_QUEUE_OVERFLOW";
+    private static final String REASON_OFFLINE_TASK_SUBMIT_FAILED = "OFFLINE_TASK_SUBMIT_FAILED";
+    private static final String REASON_OFFLINE_RESULT_FAILED = "OFFLINE_RESULT_FAILED";
+    private static final String REASON_SB_PARSE_FAILED = "SB_PARSE_FAILED";
+    private static final String REASON_SB_NESTED_TRUNCATED = "SB_NESTED_TRUNCATED";
+    private static final String REASON_NBT_DEPTH_TRUNCATED = "NBT_DEPTH_TRUNCATED";
     private static final String PHASE_INDEXING = "INDEXING";
     private static final String PHASE_OFFLINE_WORLD = "OFFLINE_WORLD";
     private static final String PHASE_OFFLINE_SB = "OFFLINE_SB";
     private static final String PHASE_OFFLINE_RS2 = "OFFLINE_RS2";
     private static final String PHASE_RUNTIME = "RUNTIME";
-    private static final String PHASE_COMPLETED = "COMPLETED";
-    private static final String PHASE_DEGRADED = "DEGRADED";
+    private static final String STATE_IDLE = "IDLE";
+    private static final String STATE_RUNNING = "RUNNING";
+    private static final String STATE_SUCCEEDED = "SUCCEEDED";
+    private static final String STATE_FAILED = "FAILED";
     private static final int MAX_NBT_RECURSION_DEPTH = 8;
     private static final int WORLD_OFFLINE_QUEUE_LIMIT = 50_000;
 
@@ -107,6 +117,7 @@ public final class StorageScanner {
     private String scanReasonCode;
     private String scanReasonMessage;
     private String scanPhase;
+    private String scanState = STATE_IDLE;
     private String scanTraceId;
     private boolean rotateOfflineSource;
     private int worldRegionInFlight;
@@ -150,7 +161,7 @@ public final class StorageScanner {
         }
 
         if (!scanRunning && !isServerHealthy(server, snapshot)) {
-            setReason(REASON_HEALTH_GUARD_BLOCKED, "服务器负载保护触发，扫描已延后");
+            setBlockingReason(REASON_HEALTH_GUARD_BLOCKED, "服务器负载保护触发，扫描已延后");
             reportScanProgress(now, false);
             return;
         }
@@ -242,9 +253,11 @@ public final class StorageScanner {
         }
 
         reportScanProgress(now, false);
-        if (!hasPendingTargets()) {
+        if (scanRunning && !hasPendingTargets()) {
             scanRunning = false;
-            scanPhase = scanReasonCode != null ? PHASE_DEGRADED : PHASE_COMPLETED;
+            scanState = STATE_SUCCEEDED;
+            scanReasonCode = null;
+            scanReasonMessage = null;
             reportScanProgress(now, true);
             StructuredOpsLogger.info(
                 "scan_session_finish",
@@ -289,6 +302,7 @@ public final class StorageScanner {
         scanReasonCode = null;
         scanReasonMessage = null;
         scanPhase = PHASE_INDEXING;
+        scanState = STATE_RUNNING;
         scanTraceId = "scan-" + now + "-" + UUID.randomUUID();
         scanStartedAtMs = now;
         nextWorldProcessAtMs = now;
@@ -334,20 +348,27 @@ public final class StorageScanner {
 
         if (!scanRunning) {
             if (worldFailed) {
-                setReason(REASON_WORLD_INDEX_FAILED, "世界区块索引失败，未找到可扫描目标");
+                failScan(REASON_WORLD_INDEX_FAILED, "世界区块索引失败，未找到可扫描目标", now);
+                return;
             } else if (sbFailed) {
-                setReason(REASON_SB_DATA_UNAVAILABLE, "SB 离线数据不可用");
+                failScan(REASON_SB_DATA_UNAVAILABLE, "SB 离线数据不可用", now);
+                return;
             } else if (rs2Failed) {
-                setReason(REASON_RS2_DATA_UNAVAILABLE, "RS2 离线数据不可用");
+                failScan(REASON_RS2_DATA_UNAVAILABLE, "RS2 离线数据不可用", now);
+                return;
             } else {
-                setReason(REASON_NO_TARGETS, "无可执行目标");
+                failScan(REASON_NO_TARGETS, "无可执行目标", now);
+                return;
             }
         } else if (worldFailed || sbFailed || rs2Failed) {
-            setReason(
-                REASON_PARTIAL_COMPLETED,
-                "部分离线来源不可用，已按可用来源继续扫描"
-            );
-            scanPhase = PHASE_DEGRADED;
+            if (worldFailed) {
+                failScan(REASON_WORLD_INDEX_FAILED, "世界区块索引失败，扫描已终止", now);
+            } else if (sbFailed) {
+                failScan(REASON_SB_DATA_UNAVAILABLE, "SB 离线数据不可用，扫描已终止", now);
+            } else {
+                failScan(REASON_RS2_DATA_UNAVAILABLE, "RS2 离线数据不可用，扫描已终止", now);
+            }
+            return;
         }
 
         StructuredOpsLogger.info(
@@ -464,7 +485,7 @@ public final class StorageScanner {
 
         CompoundTag root = readCompressedTag(sbDataFile);
         if (root == null) {
-            setReason(REASON_PARTIAL_COMPLETED, "SB 离线数据解析失败，已跳过");
+            failScan(REASON_SB_PARSE_FAILED, "SB 离线数据解析失败，扫描已终止");
             return 0;
         }
         CompoundTag payload = root.contains("data", Tag.TAG_COMPOUND) ? root.getCompound("data") : root;
@@ -510,7 +531,8 @@ public final class StorageScanner {
         }
 
         if (stats.depthTruncations > 0 || stats.cycleDetections > 0) {
-            setReason(REASON_PARTIAL_COMPLETED, "SB 离线递归解析存在截断或循环，已按可解析部分上报");
+            failScan(REASON_SB_NESTED_TRUNCATED, "SB 离线递归解析存在截断或循环，扫描已终止");
+            return 0;
         }
 
         if (loaded > 0) {
@@ -613,7 +635,7 @@ public final class StorageScanner {
             worldRegionInFlight++;
             return true;
         } catch (Throwable error) {
-            setReason(REASON_PARTIAL_COMPLETED, "世界区块目录任务提交失败");
+            failScan(REASON_WORLD_DIR_SUBMIT_FAILED, "世界区块目录任务提交失败");
             Lattice.LOGGER.warn("Submit region directory task failed: {}", nextDir.regionDir, error);
             scanDone++;
             return false;
@@ -634,7 +656,7 @@ public final class StorageScanner {
             worldRegionInFlight++;
             return true;
         } catch (Throwable error) {
-            setReason(REASON_PARTIAL_COMPLETED, "离线区块任务提交失败，已继续处理其他来源");
+            failScan(REASON_WORLD_REGION_SUBMIT_FAILED, "离线区块任务提交失败，扫描已终止");
             Lattice.LOGGER.warn("Submit region scan task failed: {}", nextFile.regionFile, error);
             scanDone++;
             return false;
@@ -654,7 +676,8 @@ public final class StorageScanner {
         try {
             WorldTaskResult result = future.get();
             if (result.partialFailure) {
-                setReason(REASON_PARTIAL_COMPLETED, "离线区块扫描部分失败，已继续处理可读数据");
+                failScan(REASON_WORLD_RESULT_FAILED, "离线区块扫描失败，扫描已终止");
+                return false;
             }
             if (!result.regionFiles.isEmpty()) {
                 worldRegionFileQueue.addAll(result.regionFiles);
@@ -665,14 +688,14 @@ public final class StorageScanner {
                 scanTotal += result.snapshots.size();
                 int allowed = Math.max(0, WORLD_OFFLINE_QUEUE_LIMIT - worldOfflineQueue.size());
                 if (allowed <= 0) {
-                    setReason(REASON_PARTIAL_COMPLETED, "离线快照队列达到上限，已降速并丢弃超额任务");
+                    failScan(REASON_WORLD_QUEUE_OVERFLOW, "离线快照队列达到上限，扫描已终止");
                     StructuredOpsLogger.warn(
                         "scan_queue_backpressure",
                         Map.of("trace_id", scanTraceId == null ? "" : scanTraceId, "queue_size", worldOfflineQueue.size())
                     );
+                    return false;
                 } else if (result.snapshots.size() > allowed) {
-                    worldOfflineQueue.addAll(result.snapshots.subList(0, allowed));
-                    setReason(REASON_PARTIAL_COMPLETED, "离线快照队列拥塞，已丢弃部分任务");
+                    failScan(REASON_WORLD_QUEUE_OVERFLOW, "离线快照队列拥塞，扫描已终止");
                     StructuredOpsLogger.warn(
                         "scan_queue_partially_dropped",
                         Map.of(
@@ -681,16 +704,17 @@ public final class StorageScanner {
                             "dropped", result.snapshots.size() - allowed
                         )
                     );
+                    return false;
                 } else {
                     worldOfflineQueue.addAll(result.snapshots);
                 }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            setReason(REASON_PARTIAL_COMPLETED, "离线区块扫描线程中断");
+            failScan(REASON_WORLD_RESULT_FAILED, "离线区块扫描线程中断");
             Lattice.LOGGER.warn("Collect region scan result interrupted", e);
         } catch (ExecutionException e) {
-            setReason(REASON_PARTIAL_COMPLETED, "离线区块扫描执行失败");
+            failScan(REASON_WORLD_RESULT_FAILED, "离线区块扫描执行失败");
             Lattice.LOGGER.warn("Collect region scan result failed", e.getCause());
         }
         return true;
@@ -1031,7 +1055,7 @@ public final class StorageScanner {
             offlineDataInFlight++;
             return true;
         } catch (Throwable error) {
-            setReason(REASON_PARTIAL_COMPLETED, "离线存储任务提交失败，已跳过部分目标");
+            failScan(REASON_OFFLINE_TASK_SUBMIT_FAILED, "离线存储任务提交失败，扫描已终止");
             Lattice.LOGGER.warn("Submit offline data task failed: {}", target.path, error);
             scanDone++;
             return false;
@@ -1051,11 +1075,8 @@ public final class StorageScanner {
         try {
             OfflineDataTaskResult result = future.get();
             if (result.partialFailure) {
-                if ("rs2".equals(result.storageMod)) {
-                    setReason(REASON_PARTIAL_COMPLETED, "RS2 离线数据部分解析失败");
-                } else {
-                    setReason(REASON_PARTIAL_COMPLETED, "离线存储数据部分解析失败");
-                }
+                failScan(REASON_OFFLINE_RESULT_FAILED, "离线存储数据解析失败，扫描已终止");
+                return false;
             }
             if (result.counts.isEmpty()) {
                 return true;
@@ -1075,10 +1096,10 @@ public final class StorageScanner {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            setReason(REASON_PARTIAL_COMPLETED, "离线存储扫描线程中断");
+            failScan(REASON_OFFLINE_RESULT_FAILED, "离线存储扫描线程中断");
             Lattice.LOGGER.warn("Collect offline data result interrupted", e);
         } catch (ExecutionException e) {
-            setReason(REASON_PARTIAL_COMPLETED, "离线存储扫描执行失败");
+            failScan(REASON_OFFLINE_RESULT_FAILED, "离线存储扫描执行失败");
             Lattice.LOGGER.warn("Collect offline data result failed", e.getCause());
         }
         return true;
@@ -1132,16 +1153,16 @@ public final class StorageScanner {
         if (scanStartedAtMs > 0 && now > scanStartedAtMs) {
             throughput = (double) scanDone / ((double) (now - scanStartedAtMs) / 1000.0D);
         }
-        TaskProgressReporter.report(
+        TaskProgressReporter.reportState(
             config,
             "scan",
-            scanRunning,
+            scanState,
+            scanPhase,
             scanTotal,
             scanDone,
             scanReasonCode,
             scanReasonMessage,
             sourceTotals.toPayload(),
-            scanPhase,
             doneBySource.toPayload(),
             scanTraceId,
             throughput
@@ -1158,12 +1179,32 @@ public final class StorageScanner {
         );
     }
 
-    private void setReason(String code, String message) {
+    private void setBlockingReason(String code, String message) {
         this.scanReasonCode = code;
         this.scanReasonMessage = message;
-        if (REASON_PARTIAL_COMPLETED.equals(code)) {
-            this.scanPhase = PHASE_DEGRADED;
-        }
+        this.scanState = STATE_IDLE;
+        this.scanPhase = null;
+    }
+
+    private void failScan(String code, String message, long now) {
+        this.scanReasonCode = code;
+        this.scanReasonMessage = message;
+        this.scanState = STATE_FAILED;
+        this.scanRunning = false;
+        clearTargets();
+        reportScanProgress(now, true);
+        StructuredOpsLogger.warn(
+            "scan_session_failed",
+            Map.of(
+                "trace_id", scanTraceId == null ? "" : scanTraceId,
+                "reason_code", code,
+                "message", message
+            )
+        );
+    }
+
+    private void failScan(String code, String message) {
+        failScan(code, message, System.currentTimeMillis());
     }
 
     private boolean shouldSkip(String storageId, long now) {
@@ -1472,18 +1513,7 @@ public final class StorageScanner {
     }
 
     private UUID extractSbStorageUuidFromStackTag(CompoundTag stackTag) {
-        UUID fromComponents = extractSbStorageUuidFromComponents(stackTag.getCompound("components"));
-        if (fromComponents != null) {
-            return fromComponents;
-        }
-        CompoundTag legacyTag = stackTag.getCompound("tag");
-        if (!legacyTag.isEmpty()) {
-            UUID fromLegacy = findUuidByHint(legacyTag, 0);
-            if (fromLegacy != null) {
-                return fromLegacy;
-            }
-        }
-        return findUuidByHint(stackTag, 0);
+        return extractSbStorageUuidFromComponents(stackTag.getCompound("components"));
     }
 
     private UUID extractSbStorageUuidFromComponents(CompoundTag componentsTag) {
@@ -1505,40 +1535,6 @@ public final class StorageScanner {
             }
         }
         return null;
-    }
-
-    private UUID findUuidByHint(Tag tag, int depth) {
-        if (tag == null || depth > MAX_NBT_RECURSION_DEPTH) {
-            return null;
-        }
-        if (tag instanceof CompoundTag compound) {
-            for (String key : compound.getAllKeys()) {
-                String lower = key.toLowerCase();
-                if (lower.contains("storage_uuid") || lower.contains("storageuuid") || lower.endsWith("uuid")) {
-                    UUID uuid = readUuidFromTag(compound.get(key));
-                    if (uuid != null) {
-                        return uuid;
-                    }
-                }
-            }
-            for (String key : compound.getAllKeys()) {
-                UUID nested = findUuidByHint(compound.get(key), depth + 1);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        if (tag instanceof ListTag list) {
-            for (int i = 0; i < list.size(); i++) {
-                UUID nested = findUuidByHint(list.get(i), depth + 1);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        return readUuidFromTag(tag);
     }
 
     private UUID readUuidFromCompound(CompoundTag compound, String key) {
@@ -1681,7 +1677,7 @@ public final class StorageScanner {
             return;
         }
         if (depth > MAX_NBT_RECURSION_DEPTH) {
-            setReason(REASON_PARTIAL_COMPLETED, "检测到深层嵌套容器，已按最大递归深度截断");
+            failScan(REASON_NBT_DEPTH_TRUNCATED, "检测到深层嵌套容器，扫描已终止");
             return;
         }
 

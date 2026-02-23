@@ -173,50 +173,6 @@ fn build_default_config_toml(paths: &RuntimePaths) -> String {
         )
 }
 
-fn is_relative_like_path(value: &str) -> bool {
-    value.starts_with("./") || value.starts_with(".\\") || !Path::new(value).is_absolute()
-}
-
-fn patch_legacy_relative_paths(paths: &RuntimePaths) {
-    let Ok(content) = fs::read_to_string(&paths.config_path) else {
-        return;
-    };
-    let Ok(mut value) = content.parse::<toml::Value>() else {
-        return;
-    };
-    let Some(table) = value.as_table_mut() else {
-        return;
-    };
-
-    let mut changed = false;
-    let patch_path =
-        |key: &str, target: &Path, table: &mut toml::value::Table, changed: &mut bool| match table
-            .get(key)
-            .and_then(|v| v.as_str())
-        {
-            Some(current) if !is_relative_like_path(current) => {}
-            _ => {
-                table.insert(key.to_string(), toml::Value::String(to_toml_path(target)));
-                *changed = true;
-            }
-        };
-
-    patch_path("report_dir", &paths.report_dir, table, &mut changed);
-    patch_path("key_items_path", &paths.key_items_path, table, &mut changed);
-    patch_path(
-        "item_registry_path",
-        &paths.item_registry_path,
-        table,
-        &mut changed,
-    );
-
-    if changed {
-        if let Ok(next) = toml::to_string_pretty(&value) {
-            let _ = fs::write(&paths.config_path, next);
-        }
-    }
-}
-
 fn ensure_runtime_files(paths: &RuntimePaths) {
     let _ = fs::create_dir_all(&paths.report_dir);
     if !paths.item_registry_path.exists() {
@@ -235,8 +191,6 @@ fn ensure_config(app: &AppHandle) -> Option<PathBuf> {
     if !paths.config_path.exists() {
         let default_content = build_default_config_toml(&paths);
         let _ = fs::write(&paths.config_path, default_content.trim_start());
-    } else {
-        patch_legacy_relative_paths(&paths);
     }
     ensure_runtime_files(&paths);
     Some(paths.config_path)

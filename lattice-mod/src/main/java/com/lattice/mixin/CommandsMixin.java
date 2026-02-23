@@ -91,13 +91,16 @@ public abstract class CommandsMixin {
         CommandSourceStack source,
         String command
     ) {
-        int normalDepth = normalParse.getContext().getNodes().size();
-        if (normalDepth == 0) {
+        if (normalParse.getContext().getNodes().isEmpty()) {
             return false;
         }
-
-        ParseResults<CommandSourceStack> levelZeroParse = dispatcher.parse(command, source.withPermission(0));
-        int levelZeroDepth = levelZeroParse.getContext().getNodes().size();
-        return levelZeroDepth < normalDepth;
+        ParseResults<CommandSourceStack> levelFourParse = dispatcher.parse(command, source.withPermission(4));
+        int levelFourDepth = levelFourParse.getContext().getNodes().size();
+        if (levelFourDepth == 0) {
+            return false;
+        }
+        ParseResults<CommandSourceStack> levelThreeParse = dispatcher.parse(command, source.withPermission(3));
+        int levelThreeDepth = levelThreeParse.getContext().getNodes().size();
+        return levelThreeDepth < levelFourDepth;
     }
 }

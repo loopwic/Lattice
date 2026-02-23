@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
+import { EmptyState, ErrorState, LoadingState } from "@/components/page-state";
 import { StatusPill } from "@/components/status-pill";
 import { fetchAlertStatus, fetchMetrics, pingHealth, pingReady } from "@/lib/api";
 import { parsePrometheusMetrics } from "@/lib/metrics";
@@ -35,6 +36,10 @@ export function Overview() {
   });
 
   const metrics = metricsQuery.data ? parsePrometheusMetrics(metricsQuery.data) : null;
+  const hasError =
+    healthQuery.isError || readyQuery.isError || alertQuery.isError || metricsQuery.isError;
+  const isLoading =
+    healthQuery.isLoading || readyQuery.isLoading || alertQuery.isLoading || metricsQuery.isLoading;
 
   return (
     <motion.div className="section-stack" variants={variants.listStagger} initial="initial" animate="enter">
@@ -51,6 +56,8 @@ export function Overview() {
           <StatusPill label="Alert" ok={alertQuery.data?.status === "ok"} />
           <StatusPill label="Mode" ok={alertQuery.data?.mode !== "unset"} />
         </div>
+        {hasError && <ErrorState className="mt-4" message="部分状态获取失败，请检查后端连接与鉴权配置。" />}
+        {!hasError && isLoading && <LoadingState className="mt-4" message="状态刷新中..." />}
       </motion.section>
 
       <motion.section className="section" variants={variants.sectionReveal}>
@@ -88,6 +95,9 @@ export function Overview() {
                 <span className="text-foreground">{metrics?.errors ?? "-"}</span>
               </div>
             </div>
+            {!metrics && !metricsQuery.isLoading && !metricsQuery.isError && (
+              <EmptyState message="当前暂无指标数据" />
+            )}
           </div>
 
           <div className="space-y-2 text-sm text-muted-foreground">

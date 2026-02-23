@@ -377,18 +377,7 @@ public final class AuditSnapshot {
     }
 
     private static UUID extractSbStorageUuidFromStackTag(CompoundTag stackTag) {
-        UUID fromComponents = extractSbStorageUuidFromComponents(stackTag.getCompound("components"));
-        if (fromComponents != null) {
-            return fromComponents;
-        }
-        CompoundTag legacyTag = stackTag.getCompound("tag");
-        if (!legacyTag.isEmpty()) {
-            UUID fromLegacy = findUuidByHint(legacyTag, 0);
-            if (fromLegacy != null) {
-                return fromLegacy;
-            }
-        }
-        return findUuidByHint(stackTag, 0);
+        return extractSbStorageUuidFromComponents(stackTag.getCompound("components"));
     }
 
     private static UUID extractSbStorageUuidFromComponents(CompoundTag componentsTag) {
@@ -410,40 +399,6 @@ public final class AuditSnapshot {
             }
         }
         return null;
-    }
-
-    private static UUID findUuidByHint(Tag tag, int depth) {
-        if (tag == null || depth > MAX_NESTED_DEPTH) {
-            return null;
-        }
-        if (tag instanceof CompoundTag compound) {
-            for (String key : compound.getAllKeys()) {
-                String lower = key.toLowerCase();
-                if (lower.contains("storage_uuid") || lower.contains("storageuuid") || lower.endsWith("uuid")) {
-                    UUID uuid = readUuidFromTag(compound.get(key), key, depth + 1);
-                    if (uuid != null) {
-                        return uuid;
-                    }
-                }
-            }
-            for (String key : compound.getAllKeys()) {
-                UUID nested = findUuidByHint(compound.get(key), depth + 1);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        if (tag instanceof ListTag list) {
-            for (int i = 0; i < list.size(); i++) {
-                UUID nested = findUuidByHint(list.get(i), depth + 1);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        return readUuidFromTag(tag, "", depth + 1);
     }
 
     private static void collectSbBackpackUuids(Container container, Set<UUID> backpackUuids) {

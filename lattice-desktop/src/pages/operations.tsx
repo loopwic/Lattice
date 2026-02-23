@@ -287,10 +287,13 @@ export function Operations() {
   }, []);
 
   function percent(progress?: TaskProgress) {
-    if (!progress || progress.total <= 0) {
+    if (!progress || progress.counters.total <= 0) {
       return 0;
     }
-    return Math.min(100, Math.round((progress.done / progress.total) * 100));
+    return Math.min(
+      100,
+      Math.round((progress.counters.done / progress.counters.total) * 100),
+    );
   }
 
   function hasProgressAckAfterQueue(
@@ -323,7 +326,7 @@ export function Operations() {
     if (!progress) {
       return "等待数据";
     }
-    if (progress.running) {
+    if (progress.state === "RUNNING") {
       return "运行中";
     }
     const waitingAck =
@@ -334,8 +337,11 @@ export function Operations() {
       }
       return "等待上报";
     }
-    if (progress.total > 0 && progress.done >= progress.total) {
+    if (progress.state === "SUCCEEDED") {
       return "已完成";
+    }
+    if (progress.state === "FAILED") {
+      return "执行失败";
     }
     return "空闲";
   }
@@ -347,8 +353,8 @@ export function Operations() {
     if (!progress) {
       return "等待数据";
     }
-    if (progress.total > 0) {
-      return `${progress.done} / ${progress.total}`;
+    if (progress.counters.total > 0) {
+      return `${progress.counters.done} / ${progress.counters.total}`;
     }
     const waitingAck =
       queuedAt !== null && !hasProgressAckAfterQueue(progress, queuedAt);
@@ -358,10 +364,20 @@ export function Operations() {
       }
       return "命令已发送，等待插件上报";
     }
-    if (progress.total === 0 && progress.done === 0 && progress.updated_at > 0) {
+    if (
+      progress.state === "FAILED" &&
+      progress.failure?.message
+    ) {
+      return `失败：${progress.failure.message}`;
+    }
+    if (
+      progress.counters.total === 0 &&
+      progress.counters.done === 0 &&
+      progress.updated_at > 0
+    ) {
       return "0 / 0（无可执行目标）";
     }
-    return `${progress.done} / ${progress.total}`;
+    return `${progress.counters.done} / ${progress.counters.total}`;
   }
 
   function reasonLabel(code: string | null | undefined) {
@@ -383,8 +399,32 @@ export function Operations() {
     if (code === "HEALTH_GUARD_BLOCKED") {
       return "负载保护触发，扫描延后";
     }
-    if (code === "PARTIAL_COMPLETED") {
-      return "部分来源不可用，已降级完成";
+    if (code === "WORLD_DIR_SUBMIT_FAILED") {
+      return "世界目录索引任务提交失败";
+    }
+    if (code === "WORLD_REGION_SUBMIT_FAILED") {
+      return "区块文件扫描任务提交失败";
+    }
+    if (code === "WORLD_RESULT_FAILED") {
+      return "离线世界扫描执行失败";
+    }
+    if (code === "WORLD_QUEUE_OVERFLOW") {
+      return "离线世界扫描队列溢出";
+    }
+    if (code === "OFFLINE_TASK_SUBMIT_FAILED") {
+      return "离线数据任务提交失败";
+    }
+    if (code === "OFFLINE_RESULT_FAILED") {
+      return "离线数据扫描执行失败";
+    }
+    if (code === "SB_PARSE_FAILED") {
+      return "SB 离线数据解析失败";
+    }
+    if (code === "SB_NESTED_TRUNCATED") {
+      return "SB 嵌套背包解析截断";
+    }
+    if (code === "NBT_DEPTH_TRUNCATED") {
+      return "Nbt 递归深度超限";
     }
     return code;
   }
@@ -408,38 +448,47 @@ export function Operations() {
     if (code === "HEALTH_GUARD_BLOCKED") {
       return "建议降低并发/频率，或在低峰时段重新触发扫描。";
     }
-    if (code === "PARTIAL_COMPLETED") {
-      return "部分来源已降级跳过，请检查不可用来源日志。";
+    if (code === "WORLD_DIR_SUBMIT_FAILED" || code === "WORLD_REGION_SUBMIT_FAILED") {
+      return "建议检查存档目录读权限、磁盘配额与线程资源后重试。";
+    }
+    if (code === "WORLD_RESULT_FAILED" || code === "OFFLINE_RESULT_FAILED") {
+      return "建议查看后台错误日志并修复异常数据文件后重试。";
+    }
+    if (code === "WORLD_QUEUE_OVERFLOW") {
+      return "建议降低扫描并发并扩大离线队列容量配置。";
+    }
+    if (code === "OFFLINE_TASK_SUBMIT_FAILED") {
+      return "建议检查离线数据扫描线程池配置与系统负载。";
+    }
+    if (code === "SB_PARSE_FAILED" || code === "SB_NESTED_TRUNCATED") {
+      return "建议检查 SB 数据文件完整性，并清理异常嵌套背包数据。";
+    }
+    if (code === "NBT_DEPTH_TRUNCATED") {
+      return "建议排查异常深层容器数据，避免递归深度越界。";
     }
     return "";
   }
 
-  function phaseLabel(phase: string | null | undefined) {
-    if (!phase) {
+  function stageLabel(stage: string | null | undefined) {
+    if (!stage) {
       return "未知阶段";
     }
-    if (phase === "INDEXING") {
+    if (stage === "INDEXING") {
       return "离线索引";
     }
-    if (phase === "OFFLINE_WORLD") {
+    if (stage === "OFFLINE_WORLD") {
       return "离线世界容器扫描";
     }
-    if (phase === "OFFLINE_SB") {
+    if (stage === "OFFLINE_SB") {
       return "SB 离线数据扫描";
     }
-    if (phase === "OFFLINE_RS2") {
+    if (stage === "OFFLINE_RS2") {
       return "RS2 离线数据扫描";
     }
-    if (phase === "RUNTIME") {
+    if (stage === "RUNTIME") {
       return "在线补充扫描";
     }
-    if (phase === "COMPLETED") {
-      return "扫描完成";
-    }
-    if (phase === "DEGRADED") {
-      return "降级完成";
-    }
-    return phase;
+    return stage;
   }
 
   function scanProgressLabel(
@@ -447,23 +496,19 @@ export function Operations() {
     queuedAt: number | null,
   ) {
     const base = taskProgressLabel(progress, queuedAt);
-    if (!progress || progress.total > 0) {
+    if (!progress || progress.counters.total > 0) {
       return base;
     }
-    if (progress.reason_message) {
-      return `0 / 0（${progress.reason_message}）`;
-    }
-    const reason = reasonLabel(progress.reason_code);
-    if (reason) {
-      return `0 / 0（${reason}）`;
+    if (progress.failure?.message) {
+      return `0 / 0（${progress.failure.message}）`;
     }
     return base;
   }
 
   function scanSourcesLabel(progress: TaskProgress | undefined) {
-    const sources = progress?.targets_total_by_source;
-    const doneBySource = progress?.done_by_source;
-    if (!sources && !doneBySource) {
+    const sources = progress?.counters.targets_total_by_source;
+    const doneBySource = progress?.counters.done_by_source;
+    if (!sources || !doneBySource) {
       return "来源进度: -";
     }
     return `来源进度: world ${doneBySource?.world_containers ?? 0}/${sources?.world_containers ?? 0} · SB ${doneBySource?.sb_offline ?? 0}/${sources?.sb_offline ?? 0} · RS2 ${doneBySource?.rs2_offline ?? 0}/${sources?.rs2_offline ?? 0} · runtime ${doneBySource?.online_runtime ?? 0}/${sources?.online_runtime ?? 0}`;
@@ -713,7 +758,7 @@ export function Operations() {
                   {scanSourcesLabel(scan)}
                 </div>
                 <div className="mt-1 text-[11px] text-muted-foreground/80">
-                  阶段: {phaseLabel(scan?.phase)}
+                  阶段: {stageLabel(scan?.stage)}
                   {scan?.throughput_per_sec !== null &&
                   scan?.throughput_per_sec !== undefined
                     ? ` · 吞吐 ${scan.throughput_per_sec.toFixed(2)}/s`
@@ -722,14 +767,14 @@ export function Operations() {
                 <div className="mt-1 text-[11px] text-muted-foreground/80">
                   Trace: {scan?.trace_id || "-"}
                 </div>
-                {scan?.reason_code && (
+                {scan?.failure?.code && (
                   <div className="mt-1 text-[11px] text-muted-foreground/80">
-                    原因码: {scan.reason_code}（{reasonLabel(scan.reason_code)}）
+                    原因码: {scan.failure.code}（{reasonLabel(scan.failure.code)}）
                   </div>
                 )}
-                {scan?.reason_code && (
+                {scan?.failure?.code && (
                   <div className="mt-1 text-[11px] text-muted-foreground/80">
-                    建议: {reasonSuggestion(scan.reason_code)}
+                    建议: {reasonSuggestion(scan.failure.code)}
                   </div>
                 )}
                 <div className="mt-1 text-[11px] text-muted-foreground/80">

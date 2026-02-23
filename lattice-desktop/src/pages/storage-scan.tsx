@@ -6,13 +6,13 @@ import {
   type SortingState,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DateFilterField } from "@/components/date-filter-field";
 import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,7 +74,6 @@ export function StorageScan() {
   const { settings } = useSettings();
   const [date, setDate] = React.useState(today());
   const [item, setItem] = React.useState("");
-  const [limit, setLimit] = React.useState("200");
   const [selected, setSelected] = React.useState<StorageScanRow | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [pagination, setPagination] = React.useState<PaginationState>({
@@ -86,11 +85,6 @@ export function StorageScan() {
     setDate(value);
   }, []);
 
-  const limitValue = Number.parseInt(limit, 10);
-  const effectiveLimit = Number.isFinite(limitValue)
-    ? Math.min(Math.max(limitValue, 1), 2000)
-    : 200;
-
   const scanQuery = useQuery({
     queryKey: [
       "storage-scan",
@@ -98,7 +92,8 @@ export function StorageScan() {
       settings.apiToken,
       date,
       item,
-      effectiveLimit,
+      pagination.pageIndex,
+      pagination.pageSize,
     ],
     enabled: isDateValue(date),
     queryFn: () =>
@@ -106,12 +101,13 @@ export function StorageScan() {
         settings.baseUrl,
         settings.apiToken,
         date,
+        pagination.pageIndex + 1,
+        pagination.pageSize,
         item.trim() || undefined,
-        effectiveLimit,
       ),
   });
 
-  const data = scanQuery.data || [];
+  const data = scanQuery.data?.items || [];
 
   const columns = React.useMemo<ColumnDef<StorageScanRow>[]>(
     () => [
@@ -161,30 +157,27 @@ export function StorageScan() {
     columns,
     state: {
       sorting,
-      pagination,
     },
     onSortingChange: setSorting,
-    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const pageState = table.getState().pagination;
-  const totalRows = data.length;
-  const totalPages = Math.max(1, table.getPageCount());
+  const pageState = pagination;
+  const totalRows = scanQuery.data?.total_items ?? 0;
+  const totalPages = Math.max(1, scanQuery.data?.total_pages ?? 1);
   const maxPageIndex = Math.max(0, totalPages - 1);
   const safePage = Math.min(pageState.pageIndex + 1, totalPages);
 
   React.useEffect(() => {
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-  }, [date, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
+  }, [date, item, settings.baseUrl, settings.apiToken]);
 
   React.useEffect(() => {
     if (pageState.pageIndex > maxPageIndex) {
-      table.setPageIndex(maxPageIndex);
+      setPagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
     }
-  }, [maxPageIndex, pageState.pageIndex, table]);
+  }, [maxPageIndex, pageState.pageIndex]);
 
   React.useEffect(() => {
     if (selected) {
@@ -217,15 +210,7 @@ export function StorageScan() {
           <div className="section-title">区块扫描结果</div>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="grid gap-2">
-            <Label>日期</Label>
-            <Input
-              type="date"
-              value={date}
-              onInput={(event) => handleDateChange(event.currentTarget.value)}
-              onChange={(event) => handleDateChange(event.currentTarget.value)}
-            />
-          </div>
+          <DateFilterField value={date} onChange={handleDateChange} />
           <div className="grid gap-2">
             <Label>物品 ID（可选）</Label>
             <Input
@@ -234,17 +219,9 @@ export function StorageScan() {
               placeholder="minecraft:diamond"
             />
           </div>
-          <div className="grid gap-2">
-            <Label>最大返回条数</Label>
-            <Input
-              value={limit}
-              onChange={(event) => setLimit(event.target.value)}
-              placeholder="200"
-            />
-          </div>
         </div>
         <div className="mt-3 text-xs text-muted-foreground">
-          仅展示超过阈值的存储快照，默认最多返回 200 条（上限 2000）。
+          仅展示超过阈值的存储快照。
         </div>
       </section>
 
@@ -259,14 +236,23 @@ export function StorageScan() {
               page={safePage}
               totalPages={totalPages}
               pageSize={pageState.pageSize}
-              canPrev={table.getCanPreviousPage()}
-              canNext={table.getCanNextPage()}
+              canPrev={pageState.pageIndex > 0}
+              canNext={pageState.pageIndex < maxPageIndex}
               onPageSizeChange={(size) => {
-                table.setPageSize(size);
-                table.setPageIndex(0);
+                setPagination({ pageIndex: 0, pageSize: size });
               }}
-              onPrev={() => table.previousPage()}
-              onNext={() => table.nextPage()}
+              onPrev={() =>
+                setPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.max(0, prev.pageIndex - 1),
+                }))
+              }
+              onNext={() =>
+                setPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.min(maxPageIndex, prev.pageIndex + 1),
+                }))
+              }
             />
             <Table>
               <TableHeader>

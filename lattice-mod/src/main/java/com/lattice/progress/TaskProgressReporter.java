@@ -63,19 +63,67 @@ public final class TaskProgressReporter {
         String traceId,
         Double throughputPerSec
     ) {
+        String normalizedCode = reasonCode == null ? null : reasonCode.trim();
+        String normalizedMessage = reasonMessage == null ? null : reasonMessage.trim();
+        String state;
+        if (running) {
+            state = "RUNNING";
+        } else if (normalizedCode != null && !normalizedCode.isEmpty()) {
+            state = "FAILED";
+        } else if (total > 0 && done >= total) {
+            state = "SUCCEEDED";
+        } else {
+            state = "IDLE";
+        }
+        reportState(
+            config,
+            task,
+            state,
+            phase,
+            total,
+            done,
+            normalizedCode,
+            normalizedMessage,
+            targetsTotalBySource,
+            doneBySource,
+            traceId,
+            throughputPerSec
+        );
+    }
+
+    public static void reportState(
+        LatticeConfig config,
+        String task,
+        String state,
+        String stage,
+        int total,
+        int done,
+        String failureCode,
+        String failureMessage,
+        SourceTotalsPayload targetsTotalBySource,
+        DoneBySourcePayload doneBySource,
+        String traceId,
+        Double throughputPerSec
+    ) {
         if (config == null) {
             return;
         }
+        SourceTotalsPayload sourceTotals = targetsTotalBySource == null
+            ? new SourceTotalsPayload(0, 0, 0, 0)
+            : targetsTotalBySource;
+        DoneBySourcePayload donePayload = doneBySource == null
+            ? new DoneBySourcePayload(0, 0, 0, 0)
+            : doneBySource;
+        TaskCountersPayload counters = new TaskCountersPayload(total, done, sourceTotals, donePayload);
+        TaskFailurePayload failure = (failureCode != null && !failureCode.isEmpty() && failureMessage != null && !failureMessage.isEmpty())
+            ? new TaskFailurePayload(failureCode, failureMessage)
+            : null;
         TaskProgressPayload payload = new TaskProgressPayload(
             task,
-            running,
-            total,
-            done,
-            reasonCode,
-            reasonMessage,
-            targetsTotalBySource,
-            phase,
-            doneBySource,
+            state == null || state.isBlank() ? "IDLE" : state.trim().toUpperCase(),
+            stage == null || stage.isBlank() ? null : stage.trim().toUpperCase(),
+            counters,
+            failure,
             traceId,
             throughputPerSec
         );
@@ -100,16 +148,26 @@ public final class TaskProgressReporter {
 
     private record TaskProgressPayload(
         String task,
-        boolean running,
-        int total,
-        int done,
-        String reason_code,
-        String reason_message,
-        SourceTotalsPayload targets_total_by_source,
-        String phase,
-        DoneBySourcePayload done_by_source,
+        String state,
+        String stage,
+        TaskCountersPayload counters,
+        TaskFailurePayload failure,
         String trace_id,
         Double throughput_per_sec
+    ) {
+    }
+
+    private record TaskCountersPayload(
+        int total,
+        int done,
+        SourceTotalsPayload targets_total_by_source,
+        DoneBySourcePayload done_by_source
+    ) {
+    }
+
+    private record TaskFailurePayload(
+        String code,
+        String message
     ) {
     }
 

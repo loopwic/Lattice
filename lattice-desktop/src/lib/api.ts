@@ -7,6 +7,7 @@ import type {
   ModConfigAck,
   ModConfigEnvelope,
   ModConfigPutRequest,
+  PagedResult,
   StorageScanRow,
   TaskStatus,
 } from "@/lib/types";
@@ -51,83 +52,102 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 
 function normalizeTaskProgress(raw: unknown) {
   const next = raw as Partial<{
-    running: boolean;
-    total: number;
-    done: number;
+    state: string;
+    stage?: string | null;
+    counters?: {
+      total?: number;
+      done?: number;
+      targets_total_by_source?: {
+        world_containers?: number;
+        sb_offline?: number;
+        rs2_offline?: number;
+        online_runtime?: number;
+      } | null;
+      done_by_source?: {
+        world_containers?: number;
+        sb_offline?: number;
+        rs2_offline?: number;
+        online_runtime?: number;
+      } | null;
+    } | null;
     updated_at: number;
-    reason_code?: string | null;
-    reason_message?: string | null;
-    phase?: string | null;
+    failure?: {
+      code?: string;
+      message?: string;
+    } | null;
     trace_id?: string | null;
     throughput_per_sec?: number | null;
-    targets_total_by_source?: {
-      world_containers?: number;
-      sb_offline?: number;
-      rs2_offline?: number;
-      online_runtime?: number;
-    } | null;
-    done_by_source?: {
-      world_containers?: number;
-      sb_offline?: number;
-      rs2_offline?: number;
-      online_runtime?: number;
-    } | null;
   }>;
-  const sourceTotals = next?.targets_total_by_source;
-  const doneBySource = next?.done_by_source;
+  const sourceTotals = next?.counters?.targets_total_by_source;
+  const doneBySource = next?.counters?.done_by_source;
   const throughput =
     typeof next?.throughput_per_sec === "number" && Number.isFinite(next.throughput_per_sec)
       ? next.throughput_per_sec
       : null;
+  const failureCode = next?.failure?.code?.trim();
+  const failureMessage = next?.failure?.message?.trim();
   return {
-    running: Boolean(next?.running),
-    total: Number(next?.total || 0),
-    done: Number(next?.done || 0),
+    state:
+      typeof next?.state === "string" && next.state.trim()
+        ? next.state.trim().toUpperCase()
+        : "IDLE",
+    stage:
+      typeof next?.stage === "string" && next.stage.trim()
+        ? next.stage.trim().toUpperCase()
+        : null,
+    counters: {
+      total: Number(next?.counters?.total || 0),
+      done: Number(next?.counters?.done || 0),
+      targets_total_by_source: {
+        world_containers: Number(sourceTotals?.world_containers || 0),
+        sb_offline: Number(sourceTotals?.sb_offline || 0),
+        rs2_offline: Number(sourceTotals?.rs2_offline || 0),
+        online_runtime: Number(sourceTotals?.online_runtime || 0),
+      },
+      done_by_source: {
+        world_containers: Number(doneBySource?.world_containers || 0),
+        sb_offline: Number(doneBySource?.sb_offline || 0),
+        rs2_offline: Number(doneBySource?.rs2_offline || 0),
+        online_runtime: Number(doneBySource?.online_runtime || 0),
+      },
+    },
     updated_at: Number(next?.updated_at || 0),
-    reason_code:
-      typeof next?.reason_code === "string" && next.reason_code.trim()
-        ? next.reason_code.trim()
-        : null,
-    reason_message:
-      typeof next?.reason_message === "string" && next.reason_message.trim()
-        ? next.reason_message.trim()
-        : null,
-    phase:
-      typeof next?.phase === "string" && next.phase.trim()
-        ? next.phase.trim()
+    failure:
+      failureCode && failureMessage
+        ? {
+            code: failureCode,
+            message: failureMessage,
+          }
         : null,
     trace_id:
       typeof next?.trace_id === "string" && next.trace_id.trim()
         ? next.trace_id.trim()
         : null,
     throughput_per_sec: throughput,
-    targets_total_by_source: sourceTotals
-      ? {
-          world_containers: Number(sourceTotals.world_containers || 0),
-          sb_offline: Number(sourceTotals.sb_offline || 0),
-          rs2_offline: Number(sourceTotals.rs2_offline || 0),
-          online_runtime: Number(sourceTotals.online_runtime || 0),
-        }
-      : null,
-    done_by_source: doneBySource
-      ? {
-          world_containers: Number(doneBySource.world_containers || 0),
-          sb_offline: Number(doneBySource.sb_offline || 0),
-          rs2_offline: Number(doneBySource.rs2_offline || 0),
-          online_runtime: Number(doneBySource.online_runtime || 0),
-        }
-      : null,
   };
 }
 
 function normalizeTaskStatus(raw: unknown): TaskStatus {
   const obj = (raw as Record<string, unknown>) || {};
-  const auditRaw =
-    obj.audit ?? obj.inventory_audit ?? obj.audit_all ?? obj.player_audit;
-  const scanRaw = obj.scan ?? obj.storage_scan ?? obj.full_scan ?? obj.storage;
   return {
-    audit: normalizeTaskProgress(auditRaw),
-    scan: normalizeTaskProgress(scanRaw),
+    audit: normalizeTaskProgress(obj.audit),
+    scan: normalizeTaskProgress(obj.scan),
+  };
+}
+
+function normalizePagedResult<T>(raw: unknown): PagedResult<T> {
+  const obj = (raw ?? {}) as Partial<PagedResult<T>>;
+  const items = Array.isArray(obj.items) ? obj.items : [];
+  const page = Number(obj.page || 1);
+  const pageSize = Number(obj.page_size || 50);
+  const totalItems = Number(obj.total_items || 0);
+  const totalPages = Number(obj.total_pages || 1);
+  return {
+    items,
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    page_size: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 50,
+    total_items: Number.isFinite(totalItems) && totalItems >= 0 ? totalItems : 0,
+    total_pages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1,
   };
 }
 
@@ -175,36 +195,44 @@ export async function fetchAnomalies(
   baseUrl: string,
   apiToken: string,
   date: string,
+  page: number,
+  pageSize: number,
   player?: string,
 ) {
   const query = new URLSearchParams();
   query.set("date", date);
+  query.set("page", String(page));
+  query.set("page_size", String(pageSize));
   if (player) {
     query.set("player", player);
   }
   const res = await fetch(buildUrl(baseUrl, `/v2/detect/anomalies?${query.toString()}`), {
     headers: buildHeaders(apiToken, false),
   });
-  return jsonOrThrow<AnomalyRow[]>(res);
+  const raw = await jsonOrThrow<unknown>(res);
+  return normalizePagedResult<AnomalyRow>(raw);
 }
 
 export async function fetchStorageScan(
   baseUrl: string,
   apiToken: string,
   date: string,
+  page: number,
+  pageSize: number,
   item?: string,
-  limit = 200,
 ) {
   const query = new URLSearchParams();
   query.set("date", date);
+  query.set("page", String(page));
+  query.set("page_size", String(pageSize));
   if (item) {
     query.set("item", item);
   }
-  query.set("limit", String(limit));
   const res = await fetch(buildUrl(baseUrl, `/v2/detect/storage-scan?${query.toString()}`), {
     headers: buildHeaders(apiToken, false),
   });
-  return jsonOrThrow<StorageScanRow[]>(res);
+  const raw = await jsonOrThrow<unknown>(res);
+  return normalizePagedResult<StorageScanRow>(raw);
 }
 
 export async function fetchAlertStatus(

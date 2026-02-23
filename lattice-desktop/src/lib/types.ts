@@ -49,17 +49,25 @@ export type AlertStatus = {
 };
 
 export type TaskProgress = {
-  running: boolean;
-  total: number;
-  done: number;
+  state: "IDLE" | "RUNNING" | "SUCCEEDED" | "FAILED" | string;
+  stage?: "INDEXING" | "OFFLINE_WORLD" | "OFFLINE_SB" | "OFFLINE_RS2" | "RUNTIME" | string | null;
+  counters: TaskCounters;
   updated_at: number;
-  reason_code?: string | null;
-  reason_message?: string | null;
-  targets_total_by_source?: TargetsTotalBySource | null;
-  phase?: string | null;
-  done_by_source?: DoneBySource | null;
+  failure?: TaskFailure | null;
   trace_id?: string | null;
   throughput_per_sec?: number | null;
+};
+
+export type TaskCounters = {
+  total: number;
+  done: number;
+  targets_total_by_source: TargetsTotalBySource;
+  done_by_source: DoneBySource;
+};
+
+export type TaskFailure = {
+  code: string;
+  message: string;
 };
 
 export type TaskStatus = {
@@ -79,6 +87,14 @@ export type DoneBySource = {
   sb_offline: number;
   rs2_offline: number;
   online_runtime: number;
+};
+
+export type PagedResult<T> = {
+  items: T[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
 };
 
 export type AlertDeliveryRecord = {

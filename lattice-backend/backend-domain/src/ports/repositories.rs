@@ -23,6 +23,18 @@ pub trait EventRepository: Send + Sync {
         item: Option<&str>,
         limit: usize,
     ) -> anyhow::Result<Vec<StorageScanEventRow>>;
+    async fn count_storage_scan_events(
+        &self,
+        date: &str,
+        item: Option<&str>,
+    ) -> anyhow::Result<u64>;
+    async fn fetch_storage_scan_events_page(
+        &self,
+        date: &str,
+        item: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> anyhow::Result<Vec<StorageScanEventRow>>;
     async fn ping(&self) -> anyhow::Result<()>;
 }
 
@@ -33,6 +45,18 @@ pub trait AnomalyRepository: Send + Sync {
         &self,
         date: &str,
         player: Option<&str>,
+    ) -> anyhow::Result<Vec<AnomalyRow>>;
+    async fn count_anomalies(
+        &self,
+        date: &str,
+        player: Option<&str>,
+    ) -> anyhow::Result<u64>;
+    async fn fetch_anomalies_page(
+        &self,
+        date: &str,
+        player: Option<&str>,
+        offset: usize,
+        limit: usize,
     ) -> anyhow::Result<Vec<AnomalyRow>>;
     async fn fetch_summary(&self, date: &str) -> anyhow::Result<ReportSummary>;
 }

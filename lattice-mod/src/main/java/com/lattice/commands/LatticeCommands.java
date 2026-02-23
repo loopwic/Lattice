@@ -25,7 +25,7 @@ public final class LatticeCommands {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(
                 Commands.literal("lattice")
-                    .requires(source -> source.hasPermission(2))
+                    .requires(source -> source.hasPermission(4))
                     .then(
                         Commands.literal("token")
                             .then(

@@ -6,12 +6,12 @@ import {
   type SortingState,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { DateFilterField } from "@/components/date-filter-field";
 import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,13 +79,28 @@ export function Anomalies() {
   }, []);
 
   const anomaliesQuery = useQuery({
-    queryKey: ["anomalies", settings.baseUrl, settings.apiToken, date, player],
+    queryKey: [
+      "anomalies",
+      settings.baseUrl,
+      settings.apiToken,
+      date,
+      player,
+      pagination.pageIndex,
+      pagination.pageSize,
+    ],
     enabled: isDateValue(date),
     queryFn: () =>
-      fetchAnomalies(settings.baseUrl, settings.apiToken, date, player.trim() || undefined),
+      fetchAnomalies(
+        settings.baseUrl,
+        settings.apiToken,
+        date,
+        pagination.pageIndex + 1,
+        pagination.pageSize,
+        player.trim() || undefined,
+      ),
   });
 
-  const data = anomaliesQuery.data || [];
+  const data = anomaliesQuery.data?.items || [];
 
   const columns = React.useMemo<ColumnDef<AnomalyRow>[]>(
     () => [
@@ -147,18 +162,15 @@ export function Anomalies() {
     columns,
     state: {
       sorting,
-      pagination,
     },
     onSortingChange: setSorting,
-    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const pageState = table.getState().pagination;
-  const totalRows = data.length;
-  const pageCount = Math.max(1, table.getPageCount());
+  const pageState = pagination;
+  const totalRows = anomaliesQuery.data?.total_items ?? 0;
+  const pageCount = Math.max(1, anomaliesQuery.data?.total_pages ?? 1);
   const maxPageIndex = Math.max(0, pageCount - 1);
   const safePage = Math.min(pageState.pageIndex + 1, pageCount);
 
@@ -168,9 +180,9 @@ export function Anomalies() {
 
   React.useEffect(() => {
     if (pageState.pageIndex > maxPageIndex) {
-      table.setPageIndex(maxPageIndex);
+      setPagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
     }
-  }, [maxPageIndex, pageState.pageIndex, table]);
+  }, [maxPageIndex, pageState.pageIndex]);
 
   function exportCsv() {
     if (!data.length) {
@@ -218,15 +230,7 @@ export function Anomalies() {
           </Button>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="grid gap-2">
-            <Label>日期</Label>
-            <Input
-              type="date"
-              value={date}
-              onInput={(event) => handleDateChange(event.currentTarget.value)}
-              onChange={(event) => handleDateChange(event.currentTarget.value)}
-            />
-          </div>
+          <DateFilterField value={date} onChange={handleDateChange} />
           <div className="grid gap-2">
             <Label>玩家名（可选）</Label>
             <Input
@@ -248,14 +252,23 @@ export function Anomalies() {
               page={safePage}
               totalPages={pageCount}
               pageSize={pageState.pageSize}
-              canPrev={table.getCanPreviousPage()}
-              canNext={table.getCanNextPage()}
+              canPrev={pageState.pageIndex > 0}
+              canNext={pageState.pageIndex < maxPageIndex}
               onPageSizeChange={(size) => {
-                table.setPageSize(size);
-                table.setPageIndex(0);
+                setPagination({ pageIndex: 0, pageSize: size });
               }}
-              onPrev={() => table.previousPage()}
-              onNext={() => table.nextPage()}
+              onPrev={() =>
+                setPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.max(0, prev.pageIndex - 1),
+                }))
+              }
+              onNext={() =>
+                setPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.min(maxPageIndex, prev.pageIndex + 1),
+                }))
+              }
             />
             <Table>
               <TableHeader>

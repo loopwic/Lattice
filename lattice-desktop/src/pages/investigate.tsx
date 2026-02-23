@@ -6,14 +6,15 @@ import {
   type SortingState,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState, ErrorState, LoadingState, TableStateBanner } from "@/components/page-state";
 import { Button } from "@/components/ui/button";
+import { DateFilterField } from "@/components/date-filter-field";
 import { TablePager } from "@/components/table-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -110,7 +111,6 @@ export function Investigate() {
 
   const [scanDate, setScanDate] = React.useState(today());
   const [item, setItem] = React.useState("");
-  const [limit, setLimit] = React.useState("200");
   const [selectedStorage, setSelectedStorage] = React.useState<StorageScanRow | null>(null);
   const [scanSorting, setScanSorting] = React.useState<SortingState>([]);
   const [scanPagination, setScanPagination] = React.useState<PaginationState>({
@@ -127,23 +127,28 @@ export function Investigate() {
   }, []);
 
   const anomaliesQuery = useQuery({
-    queryKey: ["anomalies", settings.baseUrl, settings.apiToken, anomalyDate, player],
+    queryKey: [
+      "anomalies",
+      settings.baseUrl,
+      settings.apiToken,
+      anomalyDate,
+      player,
+      anomalyPagination.pageIndex,
+      anomalyPagination.pageSize,
+    ],
     enabled: isDateValue(anomalyDate),
     queryFn: () =>
       fetchAnomalies(
         settings.baseUrl,
         settings.apiToken,
         anomalyDate,
+        anomalyPagination.pageIndex + 1,
+        anomalyPagination.pageSize,
         player.trim() || undefined,
       ),
   });
 
-  const anomaliesData = anomaliesQuery.data || [];
-
-  const limitValue = Number.parseInt(limit, 10);
-  const effectiveLimit = Number.isFinite(limitValue)
-    ? Math.min(Math.max(limitValue, 1), 2000)
-    : 200;
+  const anomaliesData = anomaliesQuery.data?.items || [];
 
   const scanQuery = useQuery({
     queryKey: [
@@ -152,7 +157,8 @@ export function Investigate() {
       settings.apiToken,
       scanDate,
       item,
-      effectiveLimit,
+      scanPagination.pageIndex,
+      scanPagination.pageSize,
     ],
     enabled: isDateValue(scanDate),
     queryFn: () =>
@@ -160,12 +166,13 @@ export function Investigate() {
         settings.baseUrl,
         settings.apiToken,
         scanDate,
+        scanPagination.pageIndex + 1,
+        scanPagination.pageSize,
         item.trim() || undefined,
-        effectiveLimit,
       ),
   });
 
-  const scanData = scanQuery.data || [];
+  const scanData = scanQuery.data?.items || [];
 
   const anomalyColumns = React.useMemo<ColumnDef<AnomalyRow>[]>(
     () => [
@@ -256,13 +263,10 @@ export function Investigate() {
     columns: anomalyColumns,
     state: {
       sorting: anomalySorting,
-      pagination: anomalyPagination,
     },
     onSortingChange: setAnomalySorting,
-    onPaginationChange: setAnomalyPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   const scanTable = useReactTable({
@@ -270,24 +274,21 @@ export function Investigate() {
     columns: scanColumns,
     state: {
       sorting: scanSorting,
-      pagination: scanPagination,
     },
     onSortingChange: setScanSorting,
-    onPaginationChange: setScanPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const anomalyPageState = anomalyTable.getState().pagination;
-  const anomalyTotalRows = anomaliesData.length;
-  const anomalyTotalPages = Math.max(1, anomalyTable.getPageCount());
+  const anomalyPageState = anomalyPagination;
+  const anomalyTotalRows = anomaliesQuery.data?.total_items ?? 0;
+  const anomalyTotalPages = Math.max(1, anomaliesQuery.data?.total_pages ?? 1);
   const anomalyMaxPageIndex = Math.max(0, anomalyTotalPages - 1);
   const anomalySafePage = Math.min(anomalyPageState.pageIndex + 1, anomalyTotalPages);
 
-  const scanPageState = scanTable.getState().pagination;
-  const scanTotalRows = scanData.length;
-  const scanTotalPages = Math.max(1, scanTable.getPageCount());
+  const scanPageState = scanPagination;
+  const scanTotalRows = scanQuery.data?.total_items ?? 0;
+  const scanTotalPages = Math.max(1, scanQuery.data?.total_pages ?? 1);
   const scanMaxPageIndex = Math.max(0, scanTotalPages - 1);
   const scanSafePage = Math.min(scanPageState.pageIndex + 1, scanTotalPages);
 
@@ -297,19 +298,19 @@ export function Investigate() {
 
   React.useEffect(() => {
     setScanPagination((prev) => ({ ...prev, pageIndex: 0 }));
-  }, [scanDate, item, effectiveLimit, settings.baseUrl, settings.apiToken]);
+  }, [scanDate, item, settings.baseUrl, settings.apiToken]);
 
   React.useEffect(() => {
     if (anomalyPageState.pageIndex > anomalyMaxPageIndex) {
-      anomalyTable.setPageIndex(anomalyMaxPageIndex);
+      setAnomalyPagination((prev) => ({ ...prev, pageIndex: anomalyMaxPageIndex }));
     }
-  }, [anomalyMaxPageIndex, anomalyPageState.pageIndex, anomalyTable]);
+  }, [anomalyMaxPageIndex, anomalyPageState.pageIndex]);
 
   React.useEffect(() => {
     if (scanPageState.pageIndex > scanMaxPageIndex) {
-      scanTable.setPageIndex(scanMaxPageIndex);
+      setScanPagination((prev) => ({ ...prev, pageIndex: scanMaxPageIndex }));
     }
-  }, [scanMaxPageIndex, scanPageState.pageIndex, scanTable]);
+  }, [scanMaxPageIndex, scanPageState.pageIndex]);
 
   React.useEffect(() => {
     if (selectedAnomaly) {
@@ -328,6 +329,18 @@ export function Investigate() {
       }
     }
   }, [scanData, selectedStorage]);
+
+  React.useEffect(() => {
+    if (anomalyPagination.pageIndex > 0) {
+      anomaliesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [anomalyPagination.pageIndex]);
+
+  React.useEffect(() => {
+    if (scanPagination.pageIndex > 0) {
+      storageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [scanPagination.pageIndex]);
 
   function jumpTo(target: "anomalies" | "storage") {
     const section = target === "anomalies" ? anomaliesRef.current : storageRef.current;
@@ -412,15 +425,7 @@ export function Investigate() {
         </div>
 
         <div className="mb-5 grid gap-4 md:grid-cols-2">
-          <div className="grid gap-2">
-            <Label>日期</Label>
-            <Input
-              type="date"
-              value={anomalyDate}
-              onInput={(event) => handleAnomalyDateChange(event.currentTarget.value)}
-              onChange={(event) => handleAnomalyDateChange(event.currentTarget.value)}
-            />
-          </div>
+          <DateFilterField value={anomalyDate} onChange={handleAnomalyDateChange} />
           <div className="grid gap-2">
             <Label>玩家名（可选）</Label>
             <Input value={player} onChange={(event) => setPlayer(event.target.value)} />
@@ -429,20 +434,36 @@ export function Investigate() {
 
         <div className="grid gap-6 lg:grid-cols-[1.65fr_1fr]">
           <div className="min-w-0">
+            <TableStateBanner
+              message={`分页 ${anomalySafePage}/${anomalyTotalPages} · 总记录 ${anomalyTotalRows}`}
+            />
             <TablePager
               totalRows={anomalyTotalRows}
               page={anomalySafePage}
               totalPages={anomalyTotalPages}
               pageSize={anomalyPageState.pageSize}
-              canPrev={anomalyTable.getCanPreviousPage()}
-              canNext={anomalyTable.getCanNextPage()}
+              canPrev={anomalyPageState.pageIndex > 0}
+              canNext={anomalyPageState.pageIndex < anomalyMaxPageIndex}
               onPageSizeChange={(size) => {
-                anomalyTable.setPageSize(size);
-                anomalyTable.setPageIndex(0);
+                setAnomalyPagination({ pageIndex: 0, pageSize: size });
               }}
-              onPrev={() => anomalyTable.previousPage()}
-              onNext={() => anomalyTable.nextPage()}
+              onPrev={() =>
+                setAnomalyPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.max(0, prev.pageIndex - 1),
+                }))
+              }
+              onNext={() =>
+                setAnomalyPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.min(anomalyMaxPageIndex, prev.pageIndex + 1),
+                }))
+              }
             />
+            {anomaliesQuery.isLoading && <LoadingState className="mb-2" message="异常数据加载中..." />}
+            {anomalyTotalRows === 0 && !anomaliesQuery.isLoading && !anomaliesQuery.isError && (
+              <EmptyState className="mb-2" message="暂无异常记录" />
+            )}
             <Table>
               <TableHeader>
                 {anomalyTable.getHeaderGroups().map((group) => (
@@ -490,7 +511,10 @@ export function Investigate() {
             </Table>
 
             {anomaliesQuery.isError && (
-              <div className="mt-4 text-sm text-destructive">{(anomaliesQuery.error as Error).message}</div>
+              <ErrorState
+                className="mt-4"
+                message={(anomaliesQuery.error as Error).message}
+              />
             )}
           </div>
 
@@ -544,45 +568,47 @@ export function Investigate() {
         </div>
 
         <div className="mb-5 grid gap-4 md:grid-cols-3">
-          <div className="grid gap-2">
-            <Label>日期</Label>
-            <Input
-              type="date"
-              value={scanDate}
-              onInput={(event) => handleScanDateChange(event.currentTarget.value)}
-              onChange={(event) => handleScanDateChange(event.currentTarget.value)}
-            />
-          </div>
+          <DateFilterField value={scanDate} onChange={handleScanDateChange} />
           <div className="grid gap-2">
             <Label>物品 ID（可选）</Label>
             <Input value={item} onChange={(event) => setItem(event.target.value)} placeholder="minecraft:diamond" />
           </div>
-          <div className="grid gap-2">
-            <Label>最大返回条数</Label>
-            <Input value={limit} onChange={(event) => setLimit(event.target.value)} placeholder="200" />
-          </div>
         </div>
 
-        <div className="mb-5 text-xs text-muted-foreground">
-          仅展示超过阈值的存储快照，默认最多返回 200 条（上限 2000）。
-        </div>
+        <div className="mb-5 text-xs text-muted-foreground">仅展示超过阈值的存储快照。</div>
 
         <div className="grid gap-6 lg:grid-cols-[1.65fr_1fr]">
           <div className="min-w-0">
+            <TableStateBanner
+              message={`分页 ${scanSafePage}/${scanTotalPages} · 总记录 ${scanTotalRows}`}
+            />
             <TablePager
               totalRows={scanTotalRows}
               page={scanSafePage}
               totalPages={scanTotalPages}
               pageSize={scanPageState.pageSize}
-              canPrev={scanTable.getCanPreviousPage()}
-              canNext={scanTable.getCanNextPage()}
+              canPrev={scanPageState.pageIndex > 0}
+              canNext={scanPageState.pageIndex < scanMaxPageIndex}
               onPageSizeChange={(size) => {
-                scanTable.setPageSize(size);
-                scanTable.setPageIndex(0);
+                setScanPagination({ pageIndex: 0, pageSize: size });
               }}
-              onPrev={() => scanTable.previousPage()}
-              onNext={() => scanTable.nextPage()}
+              onPrev={() =>
+                setScanPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.max(0, prev.pageIndex - 1),
+                }))
+              }
+              onNext={() =>
+                setScanPagination((prev) => ({
+                  ...prev,
+                  pageIndex: Math.min(scanMaxPageIndex, prev.pageIndex + 1),
+                }))
+              }
             />
+            {scanQuery.isLoading && <LoadingState className="mb-2" message="扫描数据加载中..." />}
+            {scanTotalRows === 0 && !scanQuery.isLoading && !scanQuery.isError && (
+              <EmptyState className="mb-2" message="暂无扫描记录" />
+            )}
             <Table>
               <TableHeader>
                 {scanTable.getHeaderGroups().map((group) => (
@@ -630,7 +656,10 @@ export function Investigate() {
             </Table>
 
             {scanQuery.isError && (
-              <div className="mt-4 text-sm text-destructive">{(scanQuery.error as Error).message}</div>
+              <ErrorState
+                className="mt-4"
+                message={(scanQuery.error as Error).message}
+              />
             )}
           </div>
 

@@ -92,7 +92,7 @@ pub async fn update_task_progress(
     if !authorize(&state.config, &headers) {
         return Err(HttpError::Unauthorized);
     }
-    task_progress_commands::update_task_progress(&state, payload).await;
+    task_progress_commands::update_task_progress(&state, payload).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

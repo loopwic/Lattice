@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
+import { ErrorState, LoadingState, TableStateBanner } from "@/components/page-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -392,6 +393,7 @@ export function System() {
 
   const [content, setContent] = React.useState("");
   const [loading, setLoading] = React.useState(true);
+  const [configError, setConfigError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [backendRuntime, setBackendRuntime] =
     React.useState<BackendRuntimeStatus | null>(null);
@@ -463,10 +465,13 @@ export function System() {
   const loadConfig = React.useCallback(async () => {
     try {
       setLoading(true);
+      setConfigError(null);
       const data = await invoke<string>("backend_config_get");
       setContent(data);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "加载配置失败");
+      const message = error instanceof Error ? error.message : "加载配置失败";
+      setConfigError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -594,15 +599,14 @@ export function System() {
           <div>
             <div className="section-title">连接与外观</div>
             <div className="section-meta">管理后端连接、语言与主题设置</div>
-            <div className="section-meta">
-              嵌入后端: {backendRuntime?.running ? "运行中" : "未运行"}
-              {backendRuntime?.last_error
-                ? `（${backendRuntime.last_error}）`
-                : ""}
-            </div>
           </div>
           <Button onClick={saveConnection}>保存设置</Button>
         </div>
+        <TableStateBanner
+          message={`嵌入后端: ${backendRuntime?.running ? "运行中" : "未运行"}${
+            backendRuntime?.last_error ? `（${backendRuntime.last_error}）` : ""
+          }`}
+        />
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="grid gap-2">
@@ -718,6 +722,12 @@ export function System() {
             </Button>
           </div>
         </div>
+        {(modConfigQuery.isLoading || modConfigAckQuery.isLoading) && (
+          <LoadingState
+            className="mb-4"
+            message={tr(uiLang, "动态配置状态加载中...", "Loading dynamic config status...")}
+          />
+        )}
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="grid gap-2">
@@ -1298,16 +1308,20 @@ export function System() {
             )}
           </div>
           {modConfigQuery.isError ? (
-            <div className="mt-2 text-xs text-destructive">
-              {tr(uiLang, "拉取失败", "Load Failed")}:{" "}
-              {(modConfigQuery.error as Error).message}
-            </div>
+            <ErrorState
+              className="mt-2"
+              message={`${tr(uiLang, "拉取失败", "Load Failed")}: ${
+                (modConfigQuery.error as Error).message
+              }`}
+            />
           ) : null}
           {modConfigAckQuery.isError ? (
-            <div className="mt-2 text-xs text-destructive">
-              {tr(uiLang, "回执查询失败", "Ack Query Failed")}:{" "}
-              {(modConfigAckQuery.error as Error).message}
-            </div>
+            <ErrorState
+              className="mt-2"
+              message={`${tr(uiLang, "回执查询失败", "Ack Query Failed")}: ${
+                (modConfigAckQuery.error as Error).message
+              }`}
+            />
           ) : null}
         </div>
       </motion.section>
@@ -1330,6 +1344,8 @@ export function System() {
             </Button>
           </div>
         </div>
+        {loading && <LoadingState className="mb-4" message="后端配置加载中..." />}
+        {configError && !loading && <ErrorState className="mb-4" message={configError} />}
 
         <Textarea
           className="min-h-[420px] font-mono text-xs"

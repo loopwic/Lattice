@@ -2,6 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { toast } from "sonner";
+import { ErrorState, LoadingState } from "@/components/page-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -189,12 +190,14 @@ export function Policy() {
             </div>
 
             {registryQuery.isError && (
-              <div className="rounded-md border border-foreground/28 bg-foreground/12 px-3 py-2 text-sm text-foreground">
-                搜索失败：{(registryQuery.error as Error).message || "未知错误"}
-                <div className="mt-2 text-xs">
+              <div className="space-y-2">
+                <ErrorState
+                  message={`搜索失败：${(registryQuery.error as Error).message || "未知错误"}`}
+                />
+                <div className="text-xs text-muted-foreground">
                   请确认后端已启动，并在服务器执行命令上传物品注册表。
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -214,7 +217,7 @@ export function Policy() {
             )}
 
             <motion.div className="space-y-0" variants={variants.listStagger} initial="initial" animate="enter">
-              {registryQuery.isLoading && <div className="py-3 text-sm text-muted-foreground">搜索中...</div>}
+              {registryQuery.isLoading && <LoadingState message="搜索中..." />}
               {registryQuery.data?.map(renderRegistryItem)}
               {!registryQuery.isLoading && registryQuery.data?.length === 0 && !registryQuery.isError && (
                 <div className="py-3 text-sm text-muted-foreground">暂无匹配结果</div>
@@ -309,7 +312,12 @@ export function Policy() {
           </TableBody>
         </Table>
 
-        {rulesQuery.isError && <div className="mt-3 text-sm text-destructive">{(rulesQuery.error as Error).message}</div>}
+        {rulesQuery.isError && (
+          <ErrorState
+            className="mt-3"
+            message={(rulesQuery.error as Error).message}
+          />
+        )}
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Badge className={statusBadgeClass.info}>窗口告警</Badge>

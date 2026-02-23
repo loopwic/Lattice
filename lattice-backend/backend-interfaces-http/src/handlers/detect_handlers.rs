@@ -5,7 +5,7 @@ use axum::Json;
 use backend_application::commands::key_item_commands;
 use backend_application::queries::{anomaly_queries, key_item_queries, storage_scan_queries};
 use backend_application::AppState;
-use backend_domain::{AnomalyQuery, AnomalyRow, KeyItemRuleApi, StorageScanQuery, StorageScanRow};
+use backend_domain::{AnomalyQuery, AnomalyRow, KeyItemRuleApi, PagedResult, StorageScanQuery, StorageScanRow};
 
 use crate::error::HttpError;
 use crate::middleware::authorize;
@@ -19,7 +19,7 @@ pub async fn list_anomalies(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<AnomalyQuery>,
-) -> Result<Json<Vec<AnomalyRow>>, HttpError> {
+) -> Result<Json<PagedResult<AnomalyRow>>, HttpError> {
     if !authorize(&state.config, &headers) {
         return Err(HttpError::Unauthorized);
     }
@@ -31,7 +31,7 @@ pub async fn list_storage_scan(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<StorageScanQuery>,
-) -> Result<Json<Vec<StorageScanRow>>, HttpError> {
+) -> Result<Json<PagedResult<StorageScanRow>>, HttpError> {
     if !authorize(&state.config, &headers) {
         return Err(HttpError::Unauthorized);
     }

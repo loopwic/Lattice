@@ -9,11 +9,12 @@
 
 ## Progress Contract
 
-The mod reports scan progress to `PUT /v2/ops/task-progress` with backward-compatible optional fields:
+The mod reports scan progress to `PUT /v2/ops/task-progress` with strict fields:
 
-- `reason_code`
-- `reason_message`
-- `targets_total_by_source`
+- `state`: `IDLE | RUNNING | SUCCEEDED | FAILED`
+- `stage`: `INDEXING | OFFLINE_WORLD | OFFLINE_SB | OFFLINE_RS2 | RUNTIME`
+- `counters`: `total`, `done`, `targets_total_by_source`, `done_by_source`
+- `failure`: `{ code, message }` when failed
 
 Supported reason codes:
 
@@ -22,7 +23,15 @@ Supported reason codes:
 - `SB_DATA_UNAVAILABLE`
 - `RS2_DATA_UNAVAILABLE`
 - `HEALTH_GUARD_BLOCKED`
-- `PARTIAL_COMPLETED`
+- `WORLD_DIR_SUBMIT_FAILED`
+- `WORLD_REGION_SUBMIT_FAILED`
+- `WORLD_RESULT_FAILED`
+- `WORLD_QUEUE_OVERFLOW`
+- `OFFLINE_TASK_SUBMIT_FAILED`
+- `OFFLINE_RESULT_FAILED`
+- `SB_PARSE_FAILED`
+- `SB_NESTED_TRUNCATED`
+- `NBT_DEPTH_TRUNCATED`
 
 ## Config Keys
 
@@ -35,8 +44,8 @@ The following config keys are enabled by default:
 - `scan_offline_sources_per_tick = 2`
 - `scan_include_online_runtime = true`
 
-## Compatibility
+## Runtime Rules
 
 - Event ingest protocol remains `/v2/ingest/events`.
-- Scan output still uses `STORAGE_SNAPSHOT` events only.
-- Existing consumers can ignore new optional progress fields.
+- Scan output uses `STORAGE_SNAPSHOT` events only.
+- Scan execution is fail-fast: any source failure transitions to `FAILED` and stops the run.

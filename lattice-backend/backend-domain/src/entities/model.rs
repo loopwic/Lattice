@@ -178,6 +178,8 @@ pub struct ReportSummary {
 pub struct AnomalyQuery {
     pub date: Option<String>,
     pub player: Option<String>,
+    pub page: Option<usize>,
+    pub page_size: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -210,32 +212,54 @@ pub struct ItemRegistryUpdateQuery {
     pub mode: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskProgress {
-    pub running: bool,
-    pub total: u64,
-    pub done: u64,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(default)]
+    pub counters: TaskCounters,
     pub updated_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason_code: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason_message: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub targets_total_by_source: Option<TargetsTotalBySource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub done_by_source: Option<DoneBySource>,
+    pub failure: Option<TaskFailure>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub throughput_per_sec: Option<f64>,
 }
 
+impl Default for TaskProgress {
+    fn default() -> Self {
+        Self {
+            state: "IDLE".to_string(),
+            stage: None,
+            counters: TaskCounters::default(),
+            updated_at: 0,
+            failure: None,
+            trace_id: None,
+            throughput_per_sec: None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TaskStatus {
     pub audit: TaskProgress,
     pub scan: TaskProgress,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TaskCounters {
+    pub total: u64,
+    pub done: u64,
+    pub targets_total_by_source: TargetsTotalBySource,
+    pub done_by_source: DoneBySource,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TaskFailure {
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -263,23 +287,17 @@ impl Default for RconConfig {
 #[derive(Debug, Deserialize)]
 pub struct TaskProgressUpdate {
     pub task: String,
-    pub running: bool,
-    pub total: u64,
-    pub done: u64,
+    pub state: String,
     #[serde(default)]
-    pub reason_code: Option<String>,
+    pub stage: Option<String>,
     #[serde(default)]
-    pub reason_message: Option<String>,
-    #[serde(default)]
-    pub targets_total_by_source: Option<TargetsTotalBySource>,
-    #[serde(default)]
-    pub phase: Option<String>,
-    #[serde(default)]
-    pub done_by_source: Option<DoneBySource>,
+    pub counters: TaskCounters,
     #[serde(default)]
     pub trace_id: Option<String>,
     #[serde(default)]
     pub throughput_per_sec: Option<f64>,
+    #[serde(default)]
+    pub failure: Option<TaskFailure>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -345,7 +363,17 @@ pub struct AlertDeliveryRecord {
 pub struct StorageScanQuery {
     pub date: Option<String>,
     pub item: Option<String>,
-    pub limit: Option<usize>,
+    pub page: Option<usize>,
+    pub page_size: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PagedResult<T> {
+    pub items: Vec<T>,
+    pub page: usize,
+    pub page_size: usize,
+    pub total_items: usize,
+    pub total_pages: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Row)]

@@ -122,20 +122,54 @@ TTL toDateTime(event_time) + INTERVAL 30 DAY
     }
 
     pub async fn fetch_anomalies(&self, date: &str, player: Option<&str>) -> Result<Vec<AnomalyRow>> {
+        self.fetch_anomalies_page(date, player, 0, 500).await
+    }
+
+    pub async fn count_anomalies(&self, date: &str, player: Option<&str>) -> Result<u64> {
         if let Some(player_name) = player {
             return self
                 .client
-                .query("SELECT event_time, server_id, player_uuid, player_name, item_id, count, risk_level, rule_id, reason, evidence_json FROM anomalies WHERE toDate(event_time) = toDate(?) AND player_name = ? ORDER BY event_time DESC LIMIT 500")
+                .query("SELECT count() FROM anomalies WHERE toDate(event_time) = toDate(?) AND player_name = ?")
                 .bind(date)
                 .bind(player_name)
+                .fetch_one::<u64>()
+                .await
+                .map_err(Into::into);
+        }
+        self.client
+            .query("SELECT count() FROM anomalies WHERE toDate(event_time) = toDate(?)")
+            .bind(date)
+            .fetch_one::<u64>()
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn fetch_anomalies_page(
+        &self,
+        date: &str,
+        player: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<AnomalyRow>> {
+        let safe_limit = limit.clamp(1, 2000) as u64;
+        let safe_offset = offset as u64;
+        if let Some(player_name) = player {
+            return self
+                .client
+                .query("SELECT event_time, server_id, player_uuid, player_name, item_id, count, risk_level, rule_id, reason, evidence_json FROM anomalies WHERE toDate(event_time) = toDate(?) AND player_name = ? ORDER BY event_time DESC LIMIT ? OFFSET ?")
+                .bind(date)
+                .bind(player_name)
+                .bind(safe_limit)
+                .bind(safe_offset)
                 .fetch_all::<AnomalyRow>()
                 .await
                 .map_err(Into::into);
         }
-
         self.client
-            .query("SELECT event_time, server_id, player_uuid, player_name, item_id, count, risk_level, rule_id, reason, evidence_json FROM anomalies WHERE toDate(event_time) = toDate(?) ORDER BY event_time DESC LIMIT 500")
+            .query("SELECT event_time, server_id, player_uuid, player_name, item_id, count, risk_level, rule_id, reason, evidence_json FROM anomalies WHERE toDate(event_time) = toDate(?) ORDER BY event_time DESC LIMIT ? OFFSET ?")
             .bind(date)
+            .bind(safe_limit)
+            .bind(safe_offset)
             .fetch_all::<AnomalyRow>()
             .await
             .map_err(Into::into)
@@ -166,23 +200,60 @@ TTL toDateTime(event_time) + INTERVAL 30 DAY
         item: Option<&str>,
         limit: usize,
     ) -> Result<Vec<StorageScanEventRow>> {
-        let safe_limit = limit.clamp(1, 2000) as u64;
+        self.fetch_storage_scan_events_page(date, item, 0, limit).await
+    }
+
+    pub async fn count_storage_scan_events(
+        &self,
+        date: &str,
+        item: Option<&str>,
+    ) -> Result<u64> {
         if let Some(item_id) = item {
             return self
                 .client
-                .query("SELECT event_time, item_id, count, storage_mod, storage_id, dim, x, y, z FROM item_events WHERE event_type = 'STORAGE_SNAPSHOT' AND toDate(event_time) = toDate(?) AND item_id = ? ORDER BY event_time DESC LIMIT ?")
+                .query("SELECT count() FROM item_events WHERE event_type = 'STORAGE_SNAPSHOT' AND toDate(event_time) = toDate(?) AND item_id = ?")
+                .bind(date)
+                .bind(item_id)
+                .fetch_one::<u64>()
+                .await
+                .map_err(Into::into);
+        }
+
+        self.client
+            .query("SELECT count() FROM item_events WHERE event_type = 'STORAGE_SNAPSHOT' AND toDate(event_time) = toDate(?)")
+            .bind(date)
+            .fetch_one::<u64>()
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn fetch_storage_scan_events_page(
+        &self,
+        date: &str,
+        item: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<StorageScanEventRow>> {
+        let safe_limit = limit.clamp(1, 2000) as u64;
+        let safe_offset = offset as u64;
+        if let Some(item_id) = item {
+            return self
+                .client
+                .query("SELECT event_time, item_id, count, storage_mod, storage_id, dim, x, y, z FROM item_events WHERE event_type = 'STORAGE_SNAPSHOT' AND toDate(event_time) = toDate(?) AND item_id = ? ORDER BY event_time DESC LIMIT ? OFFSET ?")
                 .bind(date)
                 .bind(item_id)
                 .bind(safe_limit)
+                .bind(safe_offset)
                 .fetch_all::<StorageScanEventRow>()
                 .await
                 .map_err(Into::into);
         }
 
         self.client
-            .query("SELECT event_time, item_id, count, storage_mod, storage_id, dim, x, y, z FROM item_events WHERE event_type = 'STORAGE_SNAPSHOT' AND toDate(event_time) = toDate(?) ORDER BY event_time DESC LIMIT ?")
+            .query("SELECT event_time, item_id, count, storage_mod, storage_id, dim, x, y, z FROM item_events WHERE event_type = 'STORAGE_SNAPSHOT' AND toDate(event_time) = toDate(?) ORDER BY event_time DESC LIMIT ? OFFSET ?")
             .bind(date)
             .bind(safe_limit)
+            .bind(safe_offset)
             .fetch_all::<StorageScanEventRow>()
             .await
             .map_err(Into::into)
@@ -213,6 +284,24 @@ impl EventRepository for ClickhouseRepo {
         ClickhouseRepo::fetch_storage_scan_events(self, date, item, limit).await
     }
 
+    async fn count_storage_scan_events(
+        &self,
+        date: &str,
+        item: Option<&str>,
+    ) -> Result<u64> {
+        ClickhouseRepo::count_storage_scan_events(self, date, item).await
+    }
+
+    async fn fetch_storage_scan_events_page(
+        &self,
+        date: &str,
+        item: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<StorageScanEventRow>> {
+        ClickhouseRepo::fetch_storage_scan_events_page(self, date, item, offset, limit).await
+    }
+
     async fn ping(&self) -> Result<()> {
         ClickhouseRepo::ping(self).await
     }
@@ -226,6 +315,20 @@ impl AnomalyRepository for ClickhouseRepo {
 
     async fn fetch_anomalies(&self, date: &str, player: Option<&str>) -> Result<Vec<AnomalyRow>> {
         ClickhouseRepo::fetch_anomalies(self, date, player).await
+    }
+
+    async fn count_anomalies(&self, date: &str, player: Option<&str>) -> Result<u64> {
+        ClickhouseRepo::count_anomalies(self, date, player).await
+    }
+
+    async fn fetch_anomalies_page(
+        &self,
+        date: &str,
+        player: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<AnomalyRow>> {
+        ClickhouseRepo::fetch_anomalies_page(self, date, player, offset, limit).await
     }
 
     async fn fetch_summary(&self, date: &str) -> Result<ReportSummary> {

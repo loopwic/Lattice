@@ -23,6 +23,25 @@ cd lattice-desktop
 npm run tauri build
 ```
 
+## Release
+
+- Release is automated by semantic-release.
+- Workflow: `.github/workflows/lattice-semantic-release.yml`
+- Trigger: push to `main` with Conventional Commits (`feat:`, `fix:`, `perf:`, `refactor:`...).
+- semantic-release will:
+  - create/update `CHANGELOG.md`
+  - bump `package.json` and `package-lock.json`
+  - sync version to `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
+- create a Git tag in format `vX.Y.Z`
+- Tag push (`v*`) triggers `.github/workflows/lattice-packages.yml` to build installers and publish GitHub Release assets.
+
+Local verification:
+
+```bash
+cd lattice-desktop
+npm run release:dry-run
+```
+
 ## Notes
 
 - The desktop app embeds the backend runtime and starts it automatically.
