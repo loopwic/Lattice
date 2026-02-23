@@ -1,3 +1,9 @@
+## [0.2.10](https://github.com/loopwic/Lattice/compare/v0.2.9...v0.2.10) (2026-02-23)
+
+### Bug Fixes
+
+* **alert:** wait NapCat ws action ack before closing socket ([1e2bb2f](https://github.com/loopwic/Lattice/commit/1e2bb2fb4cb73f4f8d9eebf17836572906335815))
+
 ## [0.2.9](https://github.com/loopwic/Lattice/compare/v0.2.8...v0.2.9) (2026-02-23)
 
 ### Bug Fixes
