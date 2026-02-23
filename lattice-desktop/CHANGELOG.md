@@ -1,3 +1,9 @@
+## [0.2.9](https://github.com/loopwic/Lattice/compare/v0.2.8...v0.2.9) (2026-02-23)
+
+### Bug Fixes
+
+* **backend:** handle NapCat group /申请 command for op token issue ([3a75c5f](https://github.com/loopwic/Lattice/commit/3a75c5ff17e097c5fadffc25d0befecdb48347b1))
+
 ## [0.2.8](https://github.com/loopwic/Lattice/compare/v0.2.7...v0.2.8) (2026-02-23)
 
 ### Bug Fixes
