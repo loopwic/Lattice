@@ -106,6 +106,26 @@ Paging constraints:
   - behavior:
     - sends a group warning through configured webhook channel
     - used when mod detects cross-account token misuse
+- `POST /v2/ops/napcat/group-event`
+  - purpose:
+    - NapCat/OneBot 群消息事件回调入口
+    - when group text command is `/申请`, backend issues token and sends result back to the same group
+  - accepted event shape (subset):
+    - `post_type: "message"`
+    - `message_type: "group"`
+    - `group_id: number`
+    - `user_id: number`
+    - `raw_message: string` (or `message` text segments)
+  - command behavior:
+    - supports `/申请` (also accepts `申请`, `/申请token`, `申请token`)
+    - internally calls `POST /v2/ops/op-token/issue` logic with:
+      - `group_id = <event.group_id>`
+      - `operator_id = <event.user_id>`
+      - `server_id = "server-01"` (default)
+    - replies by calling NapCat webhook API `send_group_msg` to the source group
+  - responses:
+    - `204` accepted/ignored (non-group-message or non-command events are ignored)
+    - `401` unauthorized when API token check fails
 - `GET /v2/ops/alert-target/check`
 - `GET /v2/ops/alert-deliveries?limit=<optional>`
 - `GET /v2/ops/alert-deliveries/last`

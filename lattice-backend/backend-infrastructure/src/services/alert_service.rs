@@ -95,6 +95,15 @@ impl AlertService for DefaultAlertService {
         send_system_alert(config, message).await
     }
 
+    async fn send_group_text(
+        &self,
+        config: &RuntimeConfig,
+        group_id: i64,
+        message: &str,
+    ) -> Result<()> {
+        send_group_text(config, group_id, message).await
+    }
+
     async fn check_alert_target(&self, config: &RuntimeConfig) -> Result<()> {
         check_alert_target(config).await
     }
@@ -190,6 +199,22 @@ async fn send_system_alert(config: &RuntimeConfig, message: &str) -> Result<()> 
     }
 }
 
+async fn send_group_text(config: &RuntimeConfig, group_id: i64, message: &str) -> Result<()> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("message is empty");
+    }
+    if group_id <= 0 {
+        anyhow::bail!("group_id must be positive");
+    }
+    let url = resolve_alert_url(config)?;
+    if url.starts_with("ws://") || url.starts_with("wss://") {
+        send_ws_group_text_alert(config, &url, group_id, trimmed).await
+    } else {
+        send_http_group_text_alert(config, &url, group_id, trimmed).await
+    }
+}
+
 async fn send_http_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRow]) -> Result<()> {
     let template = config
         .alert_webhook_template
@@ -216,6 +241,26 @@ async fn send_http_text_alert(config: &RuntimeConfig, url: &str, message: &str) 
         .timeout(Duration::from_secs(config.request_timeout_seconds.max(3)))
         .build()?;
     let payload = json!({ "message": message }).to_string();
+    client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .body(payload)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn send_http_group_text_alert(
+    config: &RuntimeConfig,
+    url: &str,
+    group_id: i64,
+    message: &str,
+) -> Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(config.request_timeout_seconds.max(3)))
+        .build()?;
+    let payload = json!({ "group_id": group_id, "message": message }).to_string();
     client
         .post(url)
         .header("Content-Type", "application/json")
@@ -278,6 +323,15 @@ async fn send_ws_text_alert(config: &RuntimeConfig, url: &str, message: &str) ->
     let group_id = config
         .alert_group_id
         .ok_or_else(|| anyhow::anyhow!("alert_group_id not configured"))?;
+    send_ws_group_text_alert(config, url, group_id, message).await
+}
+
+async fn send_ws_group_text_alert(
+    config: &RuntimeConfig,
+    url: &str,
+    group_id: i64,
+    message: &str,
+) -> Result<()> {
     let payload = json!({
         "action": "send_group_msg",
         "params": {
