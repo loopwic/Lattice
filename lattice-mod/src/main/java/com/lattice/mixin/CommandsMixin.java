@@ -94,13 +94,13 @@ public abstract class CommandsMixin {
         if (normalParse.getContext().getNodes().isEmpty()) {
             return false;
         }
-        ParseResults<CommandSourceStack> levelFourParse = dispatcher.parse(command, source.withPermission(4));
-        int levelFourDepth = levelFourParse.getContext().getNodes().size();
-        if (levelFourDepth == 0) {
+        ParseResults<CommandSourceStack> levelHighParse = dispatcher.parse(command, source.withPermission(4));
+        int levelHighDepth = levelHighParse.getContext().getNodes().size();
+        if (levelHighDepth == 0) {
             return false;
         }
-        ParseResults<CommandSourceStack> levelThreeParse = dispatcher.parse(command, source.withPermission(3));
-        int levelThreeDepth = levelThreeParse.getContext().getNodes().size();
-        return levelThreeDepth < levelFourDepth;
+        ParseResults<CommandSourceStack> levelOneParse = dispatcher.parse(command, source.withPermission(1));
+        int levelOneDepth = levelOneParse.getContext().getNodes().size();
+        return levelOneDepth < levelHighDepth;
     }
 }

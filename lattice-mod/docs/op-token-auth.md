@@ -5,7 +5,7 @@ This document describes the OP command token gate for player-issued OP commands.
 ## Behavior
 
 - Token check is applied only to player command sources.
-- When enabled, it applies to all permission-sensitive commands that require OP level 4.
+- When enabled, it applies to all permission-sensitive commands that require OP level 2 or higher.
 - Non-player sources bypass token check:
   - server console
   - backend/RCON direct command execution
@@ -44,7 +44,7 @@ lattice.v1.yyyyMMdd.playerUuidNoDash.signatureHex
 
 Guarded scope (when enabled):
 
-- all player-issued commands requiring OP level 4, including vanilla/mod commands.
+- all player-issued commands requiring OP level 2 or higher, including vanilla/mod commands.
 - example lattice commands: `/lattice audit`, `/lattice scan`, `/lattice registry`.
 
 ## Persistence
