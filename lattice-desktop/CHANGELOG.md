@@ -1,3 +1,9 @@
+## [0.2.8](https://github.com/loopwic/Lattice/compare/v0.2.7...v0.2.8) (2026-02-23)
+
+### Bug Fixes
+
+* **op-token:** enforce v2 bind-and-revoke flow with misuse alerts ([a502f26](https://github.com/loopwic/Lattice/commit/a502f26e2a92463e5023631df2db4347985ffd08))
+
 ## [0.2.7](https://github.com/loopwic/Lattice/compare/v0.2.6...v0.2.7) (2026-02-23)
 
 ### Bug Fixes
