@@ -1,3 +1,9 @@
+## [0.2.5](https://github.com/loopwic/Lattice/compare/v0.2.4...v0.2.5) (2026-02-23)
+
+### Bug Fixes
+
+* **release:** align mod build version with release tag ([89c1b23](https://github.com/loopwic/Lattice/commit/89c1b239ad53f9671873a417a28857a095fd49b8))
+
 ## [0.2.4](https://github.com/loopwic/Lattice/compare/v0.2.3...v0.2.4) (2026-02-23)
 
 ### Bug Fixes
