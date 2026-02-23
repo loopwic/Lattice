@@ -14,33 +14,28 @@ use tracing::{info, warn};
 const RECONNECT_DELAY_SECONDS: u64 = 5;
 
 pub fn spawn_napcat_ws_bridge(state: AppState) {
-    let ws_urls = resolve_ws_source_urls(&state.config);
-    if ws_urls.is_empty() {
-        info!("napcat ws bridge disabled: no ws webhook url configured");
+    let Some(ws_url) = resolve_ws_source_url(&state.config) else {
+        info!("napcat ws bridge disabled: alert_webhook_url is not configured as ws");
         return;
-    }
+    };
     let ws_token = state.config.alert_webhook_token.clone();
 
-    for ws_url in ws_urls {
-        let loop_state = state.clone();
-        let loop_token = ws_token.clone();
-        tokio::spawn(async move {
-            loop {
-                match connect_ws(&ws_url, loop_token.as_deref()).await {
-                    Ok((mut ws, mode)) => {
-                        info!("napcat ws bridge connected: url={}, mode={}", ws_url, mode);
-                        if let Err(err) = run_bridge_loop(&loop_state, &mut ws).await {
-                            warn!("napcat ws bridge loop exited: url={}, err={}", ws_url, err);
-                        }
-                    }
-                    Err(err) => {
-                        warn!("napcat ws bridge connect failed: url={}, err={}", ws_url, err);
+    tokio::spawn(async move {
+        loop {
+            match connect_ws(&ws_url, ws_token.as_deref()).await {
+                Ok((mut ws, mode)) => {
+                    info!("napcat ws bridge connected: url={}, mode={}", ws_url, mode);
+                    if let Err(err) = run_bridge_loop(&state, &mut ws).await {
+                        warn!("napcat ws bridge loop exited: url={}, err={}", ws_url, err);
                     }
                 }
-                sleep(Duration::from_secs(RECONNECT_DELAY_SECONDS)).await;
+                Err(err) => {
+                    warn!("napcat ws bridge connect failed: url={}, err={}", ws_url, err);
+                }
             }
-        });
-    }
+            sleep(Duration::from_secs(RECONNECT_DELAY_SECONDS)).await;
+        }
+    });
 }
 
 async fn connect_ws(
@@ -133,27 +128,13 @@ async fn run_bridge_loop(
     Err(anyhow::anyhow!("ws stream ended"))
 }
 
-fn resolve_ws_source_urls(config: &backend_domain::RuntimeConfig) -> Vec<String> {
-    let mut urls = Vec::new();
-    if let Some(alert_url) = config
+fn resolve_ws_source_url(config: &backend_domain::RuntimeConfig) -> Option<String> {
+    config
         .alert_webhook_url
         .as_deref()
         .map(str::trim)
         .filter(|value| value.starts_with("ws://") || value.starts_with("wss://"))
-    {
-        urls.push(alert_url.to_string());
-    }
-    if let Some(webhook_url) = config
-        .webhook_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| value.starts_with("ws://") || value.starts_with("wss://"))
-    {
-        if !urls.iter().any(|item| item == webhook_url) {
-            urls.push(webhook_url.to_string());
-        }
-    }
-    urls
+        .map(ToOwned::to_owned)
 }
 
 fn add_access_token_query(url: &str, token: Option<&str>) -> String {
