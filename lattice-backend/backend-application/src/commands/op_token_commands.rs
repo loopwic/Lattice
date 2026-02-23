@@ -75,6 +75,23 @@ pub async fn issue_op_token(
     })
 }
 
+pub fn build_issue_success_message(issued: &OpTokenIssueResponse) -> String {
+    format!(
+        "[Lattice OP Token]\n复制执行: /lattice token apply {}\nToken: {}\n有效期至: {}\n绑定规则: 首次 apply 自动绑定账号，跨账号复用会作废并告警",
+        issued.token, issued.token, issued.expires_at
+    )
+}
+
+pub fn build_issue_failure_message(err: &AppError) -> String {
+    match err {
+        AppError::Unauthorized => {
+            "申请失败：当前群未授权，请联系管理员配置 op_token_allowed_group_ids".to_string()
+        }
+        AppError::BadRequest(message) => format!("申请失败：{}", message),
+        AppError::Internal(_) => "申请失败：后端内部错误".to_string(),
+    }
+}
+
 pub async fn report_op_token_misuse(
     state: &AppState,
     payload: OpTokenMisuseAlertRequest,

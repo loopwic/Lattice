@@ -435,10 +435,12 @@ async fn send_webhook(
     link: &str,
 ) -> Result<()> {
     let template = template.unwrap_or(
-        r#"{"message":"{date} 异常: 高{high} 中{medium} 低{low} {link}"}"#,
+        r#"{"message":"[Lattice 日报] {date}\n总异常 {total}（高{high} / 中{medium} / 低{low}）\n报告: {link}"}"#,
     );
+    let total = summary.high + summary.medium + summary.low;
     let payload = template
         .replace("{date}", date)
+        .replace("{total}", &total.to_string())
         .replace("{high}", &summary.high.to_string())
         .replace("{medium}", &summary.medium.to_string())
         .replace("{low}", &summary.low.to_string())

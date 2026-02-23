@@ -117,17 +117,56 @@ jobs:
           APP_PATH="${BUNDLE_ROOT}/macos/Lattice.app"
           DMG_DIR="${BUNDLE_ROOT}/dmg"
           DMG_PATH="${DMG_DIR}/Lattice_${APP_VERSION}_aarch64.dmg"
+          VOL_NAME="Lattice-${APP_VERSION}-${{ matrix.target }}"
+          LEGACY_MOUNT_PATH="/Volumes/Lattice"
+          MOUNT_PATH="/Volumes/${VOL_NAME}"
 
           mkdir -p "${DMG_DIR}"
+          if [ ! -d "${APP_PATH}" ]; then
+            echo "Missing macOS app bundle: ${APP_PATH}"
+            ls -la "${BUNDLE_ROOT}" || true
+            exit 1
+          fi
+
+          # Clear stale mount points to avoid "hdiutil: create failed - Resource busy".
+          if mount | grep -q "on ${LEGACY_MOUNT_PATH} "; then
+            hdiutil detach "${LEGACY_MOUNT_PATH}" -force || true
+          fi
+          if mount | grep -q "on ${MOUNT_PATH} "; then
+            hdiutil detach "${MOUNT_PATH}" -force || true
+          fi
+
+          rm -f "${DMG_PATH}"
           STAGE_DIR="$(mktemp -d)"
+          cleanup() {
+            rm -rf "${STAGE_DIR}"
+            if mount | grep -q "on ${MOUNT_PATH} "; then
+              hdiutil detach "${MOUNT_PATH}" -force || true
+            fi
+          }
+          trap cleanup EXIT
+
           cp -R "${APP_PATH}" "${STAGE_DIR}/"
-          hdiutil create \
-            -volname "Lattice" \
-            -srcfolder "${STAGE_DIR}" \
-            -ov \
-            -format UDZO \
-            "${DMG_PATH}"
-          rm -rf "${STAGE_DIR}"
+          for attempt in 1 2 3; do
+            if hdiutil create \
+              -volname "${VOL_NAME}" \
+              -srcfolder "${STAGE_DIR}" \
+              -ov \
+              -format UDZO \
+              "${DMG_PATH}"; then
+              break
+            fi
+            if [ "${attempt}" -ge 3 ]; then
+              echo "Failed to build DMG after ${attempt} attempts."
+              exit 1
+            fi
+            echo "hdiutil create failed (attempt ${attempt}), retrying..."
+            sleep 2
+            if mount | grep -q "on ${MOUNT_PATH} "; then
+              hdiutil detach "${MOUNT_PATH}" -force || true
+            fi
+            rm -f "${DMG_PATH}"
+          done
 
       - name: Build Windows installers
         if: runner.os == 'Windows'

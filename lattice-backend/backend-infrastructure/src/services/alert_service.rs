@@ -219,7 +219,7 @@ async fn send_http_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRo
     let template = config
         .alert_webhook_template
         .as_deref()
-        .unwrap_or(r#"{"message":"稀有物资告警 {total} 条\n{lines}"}"#);
+        .unwrap_or(r#"{"message":"[Lattice 稀有物资告警] {summary}\n{lines}"}"#);
 
     let payload = build_payload(alerts, template);
     let client = Client::builder()
@@ -555,8 +555,9 @@ fn resolve_alert_url(config: &RuntimeConfig) -> Result<String> {
 }
 
 fn build_message(alerts: &[AnomalyRow]) -> String {
+    let summary = format!("共 {} 条", alerts.len());
     let mut lines = Vec::new();
-    lines.push(format!("稀有物资告警 {} 条", alerts.len()));
+    lines.push(format!("[Lattice 稀有物资告警] {}", summary));
     for row in alerts.iter().take(8) {
         lines.push(format!(
             "{} | {} x{} | {}",
@@ -570,6 +571,7 @@ fn build_message(alerts: &[AnomalyRow]) -> String {
 }
 
 fn build_payload(alerts: &[AnomalyRow], template: &str) -> String {
+    let summary = format!("共 {} 条", alerts.len());
     let lines = alerts
         .iter()
         .take(8)
@@ -586,5 +588,6 @@ fn build_payload(alerts: &[AnomalyRow], template: &str) -> String {
     }
     template
         .replace("{total}", &alerts.len().to_string())
+        .replace("{summary}", &summary)
         .replace("{lines}", &line_text)
 }

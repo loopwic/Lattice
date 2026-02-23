@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::http::header::AUTHORIZATION;
 use backend_application::commands::op_token_commands;
-use backend_application::{AppError, AppState};
+use backend_application::AppState;
 use backend_domain::OpTokenIssueRequest;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -91,11 +91,8 @@ async fn run_bridge_loop(
                     group_id: Some(event.group_id.to_string()),
                 };
                 let reply = match op_token_commands::issue_op_token(state, request).await {
-                    Ok(issued) => format!(
-                        "OP token 已签发（当天有效）\\n{}\\n过期时间: {}\\n游戏内使用: /lattice token apply <token>",
-                        issued.token, issued.expires_at
-                    ),
-                    Err(err) => map_issue_error_message(&err),
+                    Ok(issued) => op_token_commands::build_issue_success_message(&issued),
+                    Err(err) => op_token_commands::build_issue_failure_message(&err),
                 };
 
                 let action_echo = format!(
@@ -149,14 +146,6 @@ fn add_access_token_query(url: &str, token: Option<&str>) -> String {
         format!("{}&access_token={}", url, token)
     } else {
         format!("{}?access_token={}", url, token)
-    }
-}
-
-fn map_issue_error_message(err: &AppError) -> String {
-    match err {
-        AppError::Unauthorized => "申请失败：当前群未授权申请 OP token".to_string(),
-        AppError::BadRequest(message) => format!("申请失败：{}", message),
-        AppError::Internal(_) => "申请失败：后端内部错误".to_string(),
     }
 }
 

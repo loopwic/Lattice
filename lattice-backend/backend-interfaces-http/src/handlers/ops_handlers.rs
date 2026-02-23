@@ -14,7 +14,7 @@ use backend_application::commands::{
     mod_config_commands, op_token_commands, task_progress_commands,
 };
 use backend_application::queries::{mod_config_queries, task_progress_queries};
-use backend_application::{AppError, AppState};
+use backend_application::AppState;
 use backend_domain::{
     AlertDeliveryRecord, ModConfigAck, ModConfigEnvelope, ModConfigPutRequest, OpTokenIssueRequest,
     OpTokenIssueResponse, OpTokenMisuseAlertRequest, RconConfig, TaskProgressUpdate, TaskStatus,
@@ -172,11 +172,8 @@ pub async fn handle_napcat_group_event(
     };
 
     let response_message = match op_token_commands::issue_op_token(&state, issue_request).await {
-        Ok(issued) => format!(
-            "OP token 已签发（当天有效）\n{}\n过期时间: {}\n游戏内使用: /lattice token apply <token>",
-            issued.token, issued.expires_at
-        ),
-        Err(err) => build_issue_failure_message(&err),
+        Ok(issued) => op_token_commands::build_issue_success_message(&issued),
+        Err(err) => op_token_commands::build_issue_failure_message(&err),
     };
 
     state
@@ -529,14 +526,6 @@ fn extract_text_from_segments(segments: Option<&Value>) -> String {
 
 fn is_issue_token_command(text: &str) -> bool {
     matches!(text.trim(), "/申请" | "申请" | "/申请token" | "申请token")
-}
-
-fn build_issue_failure_message(err: &AppError) -> String {
-    match err {
-        AppError::Unauthorized => "申请失败：当前群未授权申请 OP token".to_string(),
-        AppError::BadRequest(message) => format!("申请失败：{}", message),
-        AppError::Internal(_) => "申请失败：后端内部错误".to_string(),
-    }
 }
 
 #[cfg(test)]
