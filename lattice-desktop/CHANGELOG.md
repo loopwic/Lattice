@@ -1,3 +1,9 @@
+## [0.2.7](https://github.com/loopwic/Lattice/compare/v0.2.6...v0.2.7) (2026-02-23)
+
+### Bug Fixes
+
+* **auth:** add op token issuance API and bypass FTB automation gating ([03fb7fa](https://github.com/loopwic/Lattice/commit/03fb7fa4cae90b1fe306250df7ef35fce29d3a74))
+
 ## [0.2.6](https://github.com/loopwic/Lattice/compare/v0.2.5...v0.2.6) (2026-02-23)
 
 ### Bug Fixes
