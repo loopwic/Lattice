@@ -1,3 +1,9 @@
+## [0.2.4](https://github.com/loopwic/Lattice/compare/v0.2.3...v0.2.4) (2026-02-23)
+
+### Bug Fixes
+
+* **release:** build and publish assets in semantic release pipeline ([e1018cd](https://github.com/loopwic/Lattice/commit/e1018cd6d12e4c9270ad43a5c1cd58cb8edec7eb))
+
 ## [0.2.3](https://github.com/loopwic/Lattice/compare/v0.2.2...v0.2.3) (2026-02-23)
 
 ### Bug Fixes
