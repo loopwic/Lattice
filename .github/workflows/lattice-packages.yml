@@ -136,7 +136,16 @@ jobs:
 
       - name: Build mod
         working-directory: lattice-mod
-        run: ./gradlew build --no-daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          VERSION="${TAG#v}"
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${TAG}" ]; then
+            echo "Invalid tag format: ${TAG}. Expected vX.Y.Z"
+            exit 1
+          fi
+          ./gradlew build --no-daemon -Pversion="${VERSION}"
 
       - name: Upload mod artifacts
         uses: actions/upload-artifact@v4

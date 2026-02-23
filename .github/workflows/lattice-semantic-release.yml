@@ -175,7 +175,7 @@ jobs:
 
       - name: Build mod
         working-directory: lattice-mod
-        run: ./gradlew build --no-daemon
+        run: ./gradlew build --no-daemon -Pversion=${{ needs.semantic_release.outputs.release_version }}
 
       - name: Upload mod artifacts
         uses: actions/upload-artifact@v4
