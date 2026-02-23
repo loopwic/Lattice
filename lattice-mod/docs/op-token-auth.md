@@ -54,3 +54,25 @@ Grant state is persisted at:
 - `<configDir>/lattice/op-token-state.json`
 
 Expired grants are pruned automatically.
+
+## Robot Issuance Flow
+
+Recommended production flow is "robot requests backend issuance":
+
+1. Group member sends apply command to robot (for example `/申请token`).
+2. Admin can approve with a command like `/验证 <player_uuid>`.
+3. Robot calls backend API:
+   - `POST /v2/ops/op-token/issue`
+   - body includes `player_uuid`, `operator_id`, and optional `group_id`.
+4. Robot returns issued token to the requester.
+5. Player runs `/lattice token apply <token>` in game.
+
+Backend-side allowlist controls who can issue:
+
+- `op_token_admin_ids = [...]` allows direct admin issuance (`operator_id` match).
+- `op_token_allowed_group_ids = [...]` allows any requester from approved group (`group_id` match).
+
+Issuance uses the server's mod-config values:
+
+- `op_command_token_required = true`
+- `op_command_token_secret` must be non-empty

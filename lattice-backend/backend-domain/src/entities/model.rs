@@ -376,6 +376,24 @@ pub struct PagedResult<T> {
     pub total_pages: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OpTokenIssueRequest {
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub player_uuid: String,
+    pub operator_id: String,
+    #[serde(default)]
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OpTokenIssueResponse {
+    pub token: String,
+    pub day: String,
+    pub player_uuid: String,
+    pub expires_at: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Row)]
 pub struct StorageScanEventRow {
     #[serde(with = "clickhouse::serde::time::datetime64::millis")]
@@ -412,6 +430,8 @@ pub struct StorageScanRow {
 pub struct RuntimeConfig {
     pub bind_addr: String,
     pub api_token: Option<String>,
+    pub op_token_admin_ids: Vec<String>,
+    pub op_token_allowed_group_ids: Vec<String>,
     pub report_dir: String,
     pub public_base_url: String,
     pub webhook_url: Option<String>,

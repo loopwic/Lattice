@@ -50,6 +50,7 @@ futures-util = "0.3"
 # Utilities
 uuid = { version = "1.8", features = ["serde", "v4"] }
 sha2 = "0.10"
+hmac = "0.12"
 
 # Logging
 tracing = "0.1"

@@ -77,6 +77,24 @@ Paging constraints:
     - `failure: { code, message } | null`
     - `trace_id: string | null`
     - `throughput_per_sec: number | null`
+- `POST /v2/ops/op-token/issue`
+  - body:
+    - `server_id: string | null` (default `server-01`)
+    - `player_uuid: string` (32-char no-dash hex or 36-char canonical UUID)
+    - `operator_id: string` (requester ID from robot platform)
+    - `group_id: string | null` (requesting group ID)
+  - access control:
+    - request is accepted when `operator_id` is in backend `op_token_admin_ids`
+    - or when `group_id` is in backend `op_token_allowed_group_ids`
+    - otherwise returns `401`
+  - prerequisites:
+    - target server mod-config must have `op_command_token_required = true`
+    - target server mod-config must have non-empty `op_command_token_secret`
+  - response:
+    - `token: string` (`lattice.v1.yyyyMMdd.playerUuidNoDash.signatureHex`)
+    - `day: string` (`yyyyMMdd`, server local timezone)
+    - `player_uuid: string` (normalized no-dash lowercase UUID)
+    - `expires_at: string` (RFC3339 timestamp of next local day `00:00`)
 - `GET /v2/ops/alert-target/check`
 - `GET /v2/ops/alert-deliveries?limit=<optional>`
 - `GET /v2/ops/alert-deliveries/last`

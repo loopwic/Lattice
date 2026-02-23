@@ -9,12 +9,14 @@ use futures_util::StreamExt;
 use tokio::time::{timeout, Duration};
 use tracing::{error, warn};
 
-use backend_application::commands::{mod_config_commands, task_progress_commands};
+use backend_application::commands::{
+    mod_config_commands, op_token_commands, task_progress_commands,
+};
 use backend_application::queries::{mod_config_queries, task_progress_queries};
 use backend_application::AppState;
 use backend_domain::{
-    AlertDeliveryRecord, ModConfigAck, ModConfigEnvelope, ModConfigPutRequest, RconConfig,
-    TaskProgressUpdate, TaskStatus,
+    AlertDeliveryRecord, ModConfigAck, ModConfigEnvelope, ModConfigPutRequest, OpTokenIssueRequest,
+    OpTokenIssueResponse, RconConfig, TaskProgressUpdate, TaskStatus,
 };
 
 use crate::error::HttpError;
@@ -96,6 +98,18 @@ pub async fn update_task_progress(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn issue_op_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<OpTokenIssueRequest>,
+) -> Result<Json<OpTokenIssueResponse>, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    let issued = op_token_commands::issue_op_token(&state, payload).await?;
+    Ok(Json(issued))
+}
+
 pub async fn get_mod_config_current(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -118,8 +132,7 @@ pub async fn put_mod_config_current(
     if !authorize(&state.config, &headers) {
         return Err(HttpError::Unauthorized);
     }
-    let envelope =
-        mod_config_commands::put_mod_config(&state, query.server_id, payload).await?;
+    let envelope = mod_config_commands::put_mod_config(&state, query.server_id, payload).await?;
     Ok(Json(envelope))
 }
 
@@ -132,7 +145,8 @@ pub async fn pull_mod_config(
         return Err(HttpError::Unauthorized);
     }
     let server_id = resolve_server_id(query.server_id);
-    let value = mod_config_queries::pull_mod_config(&state, &server_id, query.after_revision).await?;
+    let value =
+        mod_config_queries::pull_mod_config(&state, &server_id, query.after_revision).await?;
     Ok(Json(value))
 }
 
@@ -364,7 +378,10 @@ async fn handle_mod_config_stream(
 
 async fn send_mod_config(socket: &mut WebSocket, envelope: &ModConfigEnvelope) -> Result<(), ()> {
     let text = serde_json::to_string(envelope).map_err(|_| ())?;
-    socket.send(Message::Text(text.into())).await.map_err(|_| ())
+    socket
+        .send(Message::Text(text.into()))
+        .await
+        .map_err(|_| ())
 }
 
 fn resolve_server_id(server_id: Option<String>) -> String {

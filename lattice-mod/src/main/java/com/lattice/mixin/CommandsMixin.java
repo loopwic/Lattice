@@ -35,7 +35,15 @@ public abstract class CommandsMixin {
             return;
         }
 
-        if (!(source.getEntity() instanceof ServerPlayer)) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+
+        if (lattice$isFtbAutomationInvocation()) {
+            return;
+        }
+
+        if (lattice$isElevatedProxyPlayerSource(source, player)) {
             return;
         }
 
@@ -102,5 +110,28 @@ public abstract class CommandsMixin {
         ParseResults<CommandSourceStack> levelOneParse = dispatcher.parse(command, source.withPermission(1));
         int levelOneDepth = levelOneParse.getContext().getNodes().size();
         return levelOneDepth < levelHighDepth;
+    }
+
+    @Unique
+    private boolean lattice$isElevatedProxyPlayerSource(CommandSourceStack source, ServerPlayer player) {
+        int playerPermission = source.getServer().getProfilePermissions(player.getGameProfile());
+        boolean elevatedAtLevelTwo = source.hasPermission(2) && playerPermission < 2;
+        boolean elevatedAtLevelFour = source.hasPermission(4) && playerPermission < 4;
+        return elevatedAtLevelTwo || elevatedAtLevelFour;
+    }
+
+    @Unique
+    private boolean lattice$isFtbAutomationInvocation() {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        for (StackTraceElement element : stack) {
+            String className = element.getClassName();
+            if (className.startsWith("dev.ftb.mods.")) {
+                return true;
+            }
+            if (className.startsWith("com.feed_the_beast.")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -13,6 +13,8 @@ use backend_domain::{DbConfig, RuntimeConfig};
 pub struct AppConfig {
     pub bind_addr: String,
     pub api_token: Option<String>,
+    pub op_token_admin_ids: Vec<String>,
+    pub op_token_allowed_group_ids: Vec<String>,
     pub clickhouse_url: String,
     pub clickhouse_database: String,
     pub clickhouse_user: Option<String>,
@@ -43,6 +45,8 @@ impl Default for AppConfig {
         Self {
             bind_addr: "127.0.0.1:3234".to_string(),
             api_token: None,
+            op_token_admin_ids: Vec::new(),
+            op_token_allowed_group_ids: Vec::new(),
             clickhouse_url: "http://127.0.0.1:8123".to_string(),
             clickhouse_database: "lattice".to_string(),
             clickhouse_user: None,
@@ -139,6 +143,9 @@ impl AppConfig {
                 self.alert_group_id = None;
             }
         }
+        self.op_token_admin_ids = normalize_id_list(std::mem::take(&mut self.op_token_admin_ids));
+        self.op_token_allowed_group_ids =
+            normalize_id_list(std::mem::take(&mut self.op_token_allowed_group_ids));
     }
 
     fn resolve_paths(&mut self, base_dir: Option<&Path>) {
@@ -170,6 +177,8 @@ impl AppConfig {
         RuntimeConfig {
             bind_addr: self.bind_addr.clone(),
             api_token: self.api_token.clone(),
+            op_token_admin_ids: self.op_token_admin_ids.clone(),
+            op_token_allowed_group_ids: self.op_token_allowed_group_ids.clone(),
             report_dir: self.report_dir.clone(),
             public_base_url: self.public_base_url.clone(),
             webhook_url: self.webhook_url.clone(),
@@ -207,6 +216,12 @@ impl AppConfig {
         }
         if let Ok(value) = env::var("LATTICE_API_TOKEN") {
             self.api_token = Some(value);
+        }
+        if let Ok(value) = env::var("LATTICE_OP_TOKEN_ADMIN_IDS") {
+            self.op_token_admin_ids = parse_env_id_list(&value);
+        }
+        if let Ok(value) = env::var("LATTICE_OP_TOKEN_ALLOWED_GROUP_IDS") {
+            self.op_token_allowed_group_ids = parse_env_id_list(&value);
         }
         if let Ok(value) = env::var("LATTICE_CLICKHOUSE_URL") {
             self.clickhouse_url = value;
@@ -292,4 +307,24 @@ fn resolve_path(base: &Path, value: &str) -> String {
     } else {
         base.join(path).to_string_lossy().to_string()
     }
+}
+
+fn parse_env_id_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn normalize_id_list(values: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = values
+        .into_iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }

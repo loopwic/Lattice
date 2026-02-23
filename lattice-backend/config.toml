@@ -1,5 +1,7 @@
 bind_addr = "127.0.0.1:3234"
 api_token = ""
+op_token_admin_ids = []
+op_token_allowed_group_ids = []
 clickhouse_url = "http://127.0.0.1:8123"
 clickhouse_database = "lattice"
 clickhouse_user = ""

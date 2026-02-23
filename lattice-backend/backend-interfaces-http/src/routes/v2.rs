@@ -34,6 +34,10 @@ pub fn build_router(state: AppState) -> Router {
                 .put(ops_handlers::update_task_progress),
         )
         .route(
+            "/v2/ops/op-token/issue",
+            axum::routing::post(ops_handlers::issue_op_token),
+        )
+        .route(
             "/v2/ops/mod-config/current",
             axum::routing::get(ops_handlers::get_mod_config_current)
                 .put(ops_handlers::put_mod_config_current),
