@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::header::AUTHORIZATION;
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -298,20 +298,21 @@ async fn send_ws_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRow]
         .alert_group_id
         .ok_or_else(|| anyhow::anyhow!("alert_group_id not configured"))?;
     let message = build_message(alerts);
+    let echo = format!("lattice-{}", chrono::Utc::now().timestamp_millis());
     let payload = json!({
         "action": "send_group_msg",
         "params": {
             "group_id": group_id,
             "message": message,
         },
-        "echo": format!("lattice-{}", chrono::Utc::now().timestamp_millis()),
+        "echo": echo,
     })
     .to_string();
 
     let token = config.alert_webhook_token.clone();
-    if let Err(err) = try_ws_send(url, token.as_deref(), &payload, false).await {
+    if let Err(err) = try_ws_send(url, token.as_deref(), &payload, &echo, false).await {
         if token.as_ref().is_some() {
-            try_ws_send(url, token.as_deref(), &payload, true).await?;
+            try_ws_send(url, token.as_deref(), &payload, &echo, true).await?;
         } else {
             return Err(err);
         }
@@ -332,20 +333,21 @@ async fn send_ws_group_text_alert(
     group_id: i64,
     message: &str,
 ) -> Result<()> {
+    let echo = format!("lattice-system-{}", chrono::Utc::now().timestamp_millis());
     let payload = json!({
         "action": "send_group_msg",
         "params": {
             "group_id": group_id,
             "message": message,
         },
-        "echo": format!("lattice-system-{}", chrono::Utc::now().timestamp_millis()),
+        "echo": echo,
     })
     .to_string();
 
     let token = config.alert_webhook_token.clone();
-    if let Err(err) = try_ws_send(url, token.as_deref(), &payload, false).await {
+    if let Err(err) = try_ws_send(url, token.as_deref(), &payload, &echo, false).await {
         if token.as_ref().is_some() {
-            try_ws_send(url, token.as_deref(), &payload, true).await?;
+            try_ws_send(url, token.as_deref(), &payload, &echo, true).await?;
         } else {
             return Err(err);
         }
@@ -369,19 +371,64 @@ async fn try_ws_check(url: &str, token: Option<&str>, use_query: bool) -> Result
     }
 
     let (mut ws, _) = tokio_tungstenite::connect_async(request).await?;
+    let echo = format!("lattice-check-{}", chrono::Utc::now().timestamp_millis());
     let payload = json!({
         "action": "get_status",
         "params": {},
-        "echo": format!("lattice-check-{}", chrono::Utc::now().timestamp_millis()),
+        "echo": echo,
     })
     .to_string();
     ws.send(Message::Text(payload)).await?;
-    let _ = timeout(Duration::from_secs(2), ws.next()).await?;
+
+    let result = timeout(Duration::from_secs(8), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(text))) => {
+                    if let Some((resp_echo, status, retcode, detail)) =
+                        parse_onebot_action_response(text.as_ref())
+                    {
+                        if resp_echo.as_deref() != Some(echo.as_str()) {
+                            continue;
+                        }
+                        if status.as_deref() == Some("ok") || retcode == Some(0) {
+                            return Ok(());
+                        }
+                        return Err(anyhow::anyhow!(
+                            "ws check response rejected: status={:?}, retcode={:?}, detail={}",
+                            status,
+                            retcode,
+                            detail.unwrap_or_else(|| "unknown".to_string())
+                        ));
+                    }
+                }
+                Some(Ok(Message::Ping(bytes))) => {
+                    ws.send(Message::Pong(bytes)).await?;
+                }
+                Some(Ok(Message::Close(frame))) => {
+                    return Err(anyhow::anyhow!("ws closed before check response: {:?}", frame));
+                }
+                Some(Ok(_)) => {}
+                Some(Err(err)) => return Err(anyhow::anyhow!("ws check receive failed: {err}")),
+                None => return Err(anyhow::anyhow!("ws closed before check response")),
+            }
+        }
+    })
+    .await;
+
     let _ = ws.close(None).await;
-    Ok(())
+    match result {
+        Ok(value) => value,
+        Err(_) => Err(anyhow::anyhow!("ws check response timeout")),
+    }
 }
 
-async fn try_ws_send(url: &str, token: Option<&str>, payload: &str, use_query: bool) -> Result<()> {
+async fn try_ws_send(
+    url: &str,
+    token: Option<&str>,
+    payload: &str,
+    expected_echo: &str,
+    use_query: bool,
+) -> Result<()> {
     let mut request = if use_query {
         add_access_token_query(url, token).into_client_request()?
     } else {
@@ -397,10 +444,85 @@ async fn try_ws_send(url: &str, token: Option<&str>, payload: &str, use_query: b
     }
 
     let (mut ws, _) = tokio_tungstenite::connect_async(request).await?;
-    ws.send(Message::Text(payload.to_string())).await?;
-    let _ = timeout(Duration::from_secs(2), ws.next()).await.ok();
+    ws.send(Message::Text(payload.to_string().into())).await?;
+
+    let result = timeout(Duration::from_secs(8), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(text))) => {
+                    if let Some((resp_echo, status, retcode, detail)) =
+                        parse_onebot_action_response(text.as_ref())
+                    {
+                        if resp_echo.as_deref() != Some(expected_echo) {
+                            continue;
+                        }
+                        if status.as_deref() == Some("ok") || retcode == Some(0) {
+                            return Ok(());
+                        }
+                        return Err(anyhow::anyhow!(
+                            "ws action rejected: status={:?}, retcode={:?}, detail={}",
+                            status,
+                            retcode,
+                            detail.unwrap_or_else(|| "unknown".to_string())
+                        ));
+                    }
+                }
+                Some(Ok(Message::Ping(bytes))) => {
+                    ws.send(Message::Pong(bytes)).await?;
+                }
+                Some(Ok(Message::Close(frame))) => {
+                    return Err(anyhow::anyhow!("ws closed before action response: {:?}", frame));
+                }
+                Some(Ok(_)) => {}
+                Some(Err(err)) => return Err(anyhow::anyhow!("ws action receive failed: {err}")),
+                None => return Err(anyhow::anyhow!("ws closed before action response")),
+            }
+        }
+    })
+    .await;
+
     let _ = ws.close(None).await;
-    Ok(())
+    match result {
+        Ok(value) => value,
+        Err(_) => Err(anyhow::anyhow!(
+            "ws action response timeout for echo={}",
+            expected_echo
+        )),
+    }
+}
+
+fn parse_onebot_action_response(
+    text: &str,
+) -> Option<(Option<String>, Option<String>, Option<i64>, Option<String>)> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    let echo = value.get("echo").and_then(normalize_echo_value);
+    let status = value
+        .get("status")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string());
+    let retcode = value.get("retcode").and_then(Value::as_i64);
+    let detail = value
+        .get("msg")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+        .or_else(|| {
+            value
+                .get("wording")
+                .and_then(Value::as_str)
+                .map(|value| value.to_string())
+        });
+    if echo.is_none() && status.is_none() && retcode.is_none() {
+        return None;
+    }
+    Some((echo, status, retcode, detail))
+}
+
+fn normalize_echo_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
 }
 
 fn add_access_token_query(url: &str, token: Option<&str>) -> String {
