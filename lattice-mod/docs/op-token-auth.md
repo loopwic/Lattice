@@ -27,13 +27,19 @@ op_command_token_secret = ""
 ## Token Format
 
 ```text
-lattice.v1.yyyyMMdd.playerUuidNoDash.signatureHex
+lattice.v2.yyyyMMdd.tokenId.signatureHex
 ```
 
 - `yyyyMMdd`: day string in server local timezone.
-- `playerUuidNoDash`: player UUID without `-`, lowercase.
+- `tokenId`: 32-char lowercase hex token identifier.
 - `signatureHex`: lowercase hex of:
-  - HMAC-SHA256(secret = `op_command_token_secret`, payload = `lattice|v1|yyyyMMdd|playerUuidNoDash`)
+  - HMAC-SHA256(secret = `op_command_token_secret`, payload = `lattice|v2|yyyyMMdd|tokenId`)
+- token is unbound when issued.
+- first successful `/lattice token apply <token>` binds token to current player UUID.
+- if a different UUID tries to apply the same token:
+  - token is revoked immediately (for all accounts) until day rollover
+  - owner's active grant from that token is removed
+  - backend group warning is emitted through webhook
 
 ## Commands
 
@@ -59,18 +65,19 @@ Expired grants are pruned automatically.
 
 Recommended production flow is "robot requests backend issuance":
 
-1. Group member sends apply command to robot (for example `/申请token`).
-2. Admin can approve with a command like `/验证 <player_uuid>`.
-3. Robot calls backend API:
+1. Group member sends apply command to robot (for example `/申请`).
+2. Robot calls backend API:
    - `POST /v2/ops/op-token/issue`
-   - body includes `player_uuid`, `operator_id`, and optional `group_id`.
-4. Robot returns issued token to the requester.
-5. Player runs `/lattice token apply <token>` in game.
+   - body includes `group_id`, and optional `operator_id`.
+3. Robot returns issued token to the requester.
+4. Player runs `/lattice token apply <token>` in game.
+5. When misuse is detected, mod calls:
+   - `POST /v2/ops/op-token/misuse-alert`
+   - backend forwards warning message to configured group webhook.
 
 Backend-side allowlist controls who can issue:
 
-- `op_token_admin_ids = [...]` allows direct admin issuance (`operator_id` match).
-- `op_token_allowed_group_ids = [...]` allows any requester from approved group (`group_id` match).
+- `group_id` must exist in `op_token_allowed_group_ids = [...]`.
 
 Issuance uses the server's mod-config values:
 

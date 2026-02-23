@@ -22,6 +22,7 @@ chrono = { workspace = true }
 tokio = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }
+uuid = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

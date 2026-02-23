@@ -16,7 +16,7 @@ use backend_application::queries::{mod_config_queries, task_progress_queries};
 use backend_application::AppState;
 use backend_domain::{
     AlertDeliveryRecord, ModConfigAck, ModConfigEnvelope, ModConfigPutRequest, OpTokenIssueRequest,
-    OpTokenIssueResponse, RconConfig, TaskProgressUpdate, TaskStatus,
+    OpTokenIssueResponse, OpTokenMisuseAlertRequest, RconConfig, TaskProgressUpdate, TaskStatus,
 };
 
 use crate::error::HttpError;
@@ -108,6 +108,18 @@ pub async fn issue_op_token(
     }
     let issued = op_token_commands::issue_op_token(&state, payload).await?;
     Ok(Json(issued))
+}
+
+pub async fn report_op_token_misuse(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<OpTokenMisuseAlertRequest>,
+) -> Result<StatusCode, HttpError> {
+    if !authorize(&state.config, &headers) {
+        return Err(HttpError::Unauthorized);
+    }
+    op_token_commands::report_op_token_misuse(&state, payload).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_mod_config_current(

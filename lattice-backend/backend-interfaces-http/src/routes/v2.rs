@@ -38,6 +38,10 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::post(ops_handlers::issue_op_token),
         )
         .route(
+            "/v2/ops/op-token/misuse-alert",
+            axum::routing::post(ops_handlers::report_op_token_misuse),
+        )
+        .route(
             "/v2/ops/mod-config/current",
             axum::routing::get(ops_handlers::get_mod_config_current)
                 .put(ops_handlers::put_mod_config_current),

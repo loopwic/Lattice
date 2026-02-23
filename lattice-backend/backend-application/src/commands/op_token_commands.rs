@@ -2,14 +2,15 @@ use anyhow::anyhow;
 use chrono::{Local, TimeZone};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use uuid::Uuid;
 
 use crate::queries::mod_config_queries;
 use crate::{AppError, AppState};
-use backend_domain::{OpTokenIssueRequest, OpTokenIssueResponse};
+use backend_domain::{OpTokenIssueRequest, OpTokenIssueResponse, OpTokenMisuseAlertRequest};
 
 const DEFAULT_SERVER_ID: &str = "server-01";
 const TOKEN_PREFIX: &str = "lattice";
-const TOKEN_VERSION: &str = "v1";
+const TOKEN_VERSION: &str = "v2";
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -18,11 +19,11 @@ pub async fn issue_op_token(
     payload: OpTokenIssueRequest,
 ) -> Result<OpTokenIssueResponse, AppError> {
     let server_id = normalize_server_id(payload.server_id);
-    let player_uuid = normalize_player_uuid(payload.player_uuid)?;
-    let operator_id = normalize_required_text(payload.operator_id, "operator_id")?;
+    let _operator_id =
+        normalize_optional_text(payload.operator_id).unwrap_or_else(|| "unknown".to_string());
     let group_id = normalize_optional_text(payload.group_id);
 
-    authorize_issue(&state.config, &operator_id, group_id.as_deref())?;
+    authorize_issue(&state.config, group_id.as_deref())?;
 
     let envelope = mod_config_queries::get_mod_config(state, &server_id).await?;
     let envelope = envelope.ok_or_else(|| {
@@ -53,54 +54,60 @@ pub async fn issue_op_token(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
             AppError::BadRequest(
-                "mod config field 'op_command_token_secret' must be a non-empty string".to_string(),
+                "mod config field 'op_command_token_secret' must be a non-empty string"
+                    .to_string(),
             )
         })?;
 
     let day = Local::now().format("%Y%m%d").to_string();
-    let payload_to_sign = format!("{}|{}|{}|{}", TOKEN_PREFIX, TOKEN_VERSION, day, player_uuid);
+    let token_id = Uuid::new_v4().simple().to_string();
+    let payload_to_sign = format!("{}|{}|{}|{}", TOKEN_PREFIX, TOKEN_VERSION, day, token_id);
     let signature = sign_hmac_sha256(secret, &payload_to_sign)?;
     let token = format!(
         "{}.{}.{}.{}.{}",
-        TOKEN_PREFIX, TOKEN_VERSION, day, player_uuid, signature
+        TOKEN_PREFIX, TOKEN_VERSION, day, token_id, signature
     );
 
     Ok(OpTokenIssueResponse {
         token,
         day,
-        player_uuid,
         expires_at: next_local_midnight_rfc3339()?,
     })
 }
 
-fn authorize_issue(
-    config: &backend_domain::RuntimeConfig,
-    operator_id: &str,
-    group_id: Option<&str>,
+pub async fn report_op_token_misuse(
+    state: &AppState,
+    payload: OpTokenMisuseAlertRequest,
 ) -> Result<(), AppError> {
-    if is_operator_authorized(
-        &config.op_token_admin_ids,
-        &config.op_token_allowed_group_ids,
-        operator_id,
-        group_id,
-    ) {
-        Ok(())
-    } else {
-        Err(AppError::Unauthorized)
-    }
+    let server_id = normalize_server_id(payload.server_id);
+    let attempt_player_uuid = normalize_player_uuid(payload.attempt_player_uuid)?;
+    let token_owner_uuid = normalize_player_uuid(payload.token_owner_uuid)?;
+    let attempt_player_name =
+        normalize_required_text(payload.attempt_player_name, "attempt_player_name")?;
+    let message = format!(
+        "OP Token 安全告警: 玩家 {}({}) 试图使用属于 {} 的 token，token 已作废。server={}",
+        attempt_player_name, attempt_player_uuid, token_owner_uuid, server_id
+    );
+    state
+        .alert_service
+        .send_system_alert(&state.config, &message)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))
 }
 
-fn is_operator_authorized(
-    admin_ids: &[String],
-    allowed_group_ids: &[String],
-    operator_id: &str,
-    group_id: Option<&str>,
-) -> bool {
-    let by_admin = admin_ids.iter().any(|candidate| candidate == operator_id);
-    let by_group = group_id
-        .map(|gid| allowed_group_ids.iter().any(|candidate| candidate == gid))
-        .unwrap_or(false);
-    by_admin || by_group
+fn authorize_issue(config: &backend_domain::RuntimeConfig, group_id: Option<&str>) -> Result<(), AppError> {
+    let gid = group_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::BadRequest("group_id is required".to_string()))?;
+    if is_group_authorized(&config.op_token_allowed_group_ids, gid) {
+        return Ok(());
+    }
+    Err(AppError::Unauthorized)
+}
+
+fn is_group_authorized(allowed_group_ids: &[String], group_id: &str) -> bool {
+    allowed_group_ids.iter().any(|candidate| candidate == group_id)
 }
 
 fn normalize_server_id(value: Option<String>) -> String {
@@ -207,16 +214,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalize_player_uuid_supports_compact_format() {
-        let uuid = "0123456789abcdef0123456789abcdef".to_string();
-        let normalized = normalize_player_uuid(uuid).expect("normalize uuid");
+    fn group_authorization_accepts_only_allowed_group() {
+        let groups = vec!["group_a".to_string()];
+        assert!(is_group_authorized(&groups, "group_a"));
+        assert!(!is_group_authorized(&groups, "group_b"));
+    }
+
+    #[test]
+    fn authorize_issue_requires_group_id() {
+        let config = backend_domain::RuntimeConfig {
+            bind_addr: "127.0.0.1:3234".to_string(),
+            api_token: None,
+            op_token_admin_ids: vec!["admin_1".to_string()],
+            op_token_allowed_group_ids: vec!["group_a".to_string()],
+            report_dir: "./reports".to_string(),
+            public_base_url: "http://127.0.0.1:3234".to_string(),
+            webhook_url: None,
+            webhook_template: None,
+            alert_webhook_url: None,
+            alert_webhook_template: None,
+            alert_webhook_token: None,
+            alert_group_id: None,
+            key_items_path: "./key_items.yaml".to_string(),
+            item_registry_path: "./item_registry.json".to_string(),
+            transfer_window_seconds: 2,
+            key_item_window_minutes: 10,
+            strict_enabled: false,
+            strict_pickup_window_seconds: 30,
+            strict_pickup_threshold: 256,
+            max_body_bytes: 1024,
+            request_timeout_seconds: 15,
+            report_hour: 0,
+            report_minute: 5,
+        };
+
+        let result_missing = authorize_issue(&config, None);
+        match result_missing {
+            Err(AppError::BadRequest(message)) => assert!(message.contains("group_id")),
+            _ => panic!("unexpected result"),
+        }
+
+        let result_allowed = authorize_issue(&config, Some("group_a"));
+        assert!(result_allowed.is_ok());
+
+        let result_denied = authorize_issue(&config, Some("group_b"));
+        match result_denied {
+            Err(AppError::Unauthorized) => {}
+            _ => panic!("unexpected result"),
+        }
+    }
+
+    #[test]
+    fn normalize_player_uuid_supports_compact_uuid() {
+        let normalized =
+            normalize_player_uuid("0123456789abcdef0123456789abcdef".to_string()).expect("uuid");
         assert_eq!(normalized, "0123456789abcdef0123456789abcdef");
     }
 
     #[test]
-    fn normalize_player_uuid_supports_canonical_format() {
-        let uuid = "01234567-89ab-cdef-0123-456789abcdef".to_string();
-        let normalized = normalize_player_uuid(uuid).expect("normalize uuid");
+    fn normalize_player_uuid_supports_canonical_uuid() {
+        let normalized =
+            normalize_player_uuid("01234567-89ab-cdef-0123-456789abcdef".to_string()).expect("uuid");
         assert_eq!(normalized, "0123456789abcdef0123456789abcdef");
     }
 
@@ -225,41 +283,15 @@ mod tests {
         let err = normalize_player_uuid("invalid-value".to_string()).expect_err("reject invalid");
         match err {
             AppError::BadRequest(message) => assert!(message.contains("player_uuid")),
-            _ => panic!("unexpected error type"),
+            _ => panic!("unexpected error"),
         }
     }
 
     #[test]
-    fn operator_authorization_accepts_admin_or_allowed_group() {
-        let admins = vec!["admin_1".to_string()];
-        let groups = vec!["group_a".to_string()];
-        assert!(is_operator_authorized(
-            &admins,
-            &groups,
-            "admin_1",
-            Some("group_unknown")
-        ));
-        assert!(is_operator_authorized(
-            &admins,
-            &groups,
-            "member_x",
-            Some("group_a")
-        ));
-        assert!(!is_operator_authorized(
-            &admins,
-            &groups,
-            "member_x",
-            Some("group_b")
-        ));
-    }
-
-    #[test]
     fn hmac_signature_matches_known_vector() {
-        let signature = sign_hmac_sha256(
-            "secret",
-            "lattice|v1|20260223|0123456789abcdef0123456789abcdef",
-        )
-        .expect("signature");
+        let signature =
+            sign_hmac_sha256("secret", "lattice|v2|20260223|0123456789abcdef0123456789abcdef")
+                .expect("signature");
         assert_eq!(signature.len(), 64);
         assert!(signature.chars().all(|ch| ch.is_ascii_hexdigit()));
     }

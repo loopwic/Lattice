@@ -91,6 +91,10 @@ impl AlertService for DefaultAlertService {
         });
     }
 
+    async fn send_system_alert(&self, config: &RuntimeConfig, message: &str) -> Result<()> {
+        send_system_alert(config, message).await
+    }
+
     async fn check_alert_target(&self, config: &RuntimeConfig) -> Result<()> {
         check_alert_target(config).await
     }
@@ -173,6 +177,19 @@ async fn send_alerts(config: &RuntimeConfig, alerts: &[AnomalyRow]) -> Result<()
     }
 }
 
+async fn send_system_alert(config: &RuntimeConfig, message: &str) -> Result<()> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("message is empty");
+    }
+    let url = resolve_alert_url(config)?;
+    if url.starts_with("ws://") || url.starts_with("wss://") {
+        send_ws_text_alert(config, &url, trimmed).await
+    } else {
+        send_http_text_alert(config, &url, trimmed).await
+    }
+}
+
 async fn send_http_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRow]) -> Result<()> {
     let template = config
         .alert_webhook_template
@@ -184,6 +201,21 @@ async fn send_http_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRo
         .timeout(Duration::from_secs(config.request_timeout_seconds.max(3)))
         .build()?;
 
+    client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .body(payload)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
+async fn send_http_text_alert(config: &RuntimeConfig, url: &str, message: &str) -> Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(config.request_timeout_seconds.max(3)))
+        .build()?;
+    let payload = json!({ "message": message }).to_string();
     client
         .post(url)
         .header("Content-Type", "application/json")
@@ -228,6 +260,31 @@ async fn send_ws_alerts(config: &RuntimeConfig, url: &str, alerts: &[AnomalyRow]
             "message": message,
         },
         "echo": format!("lattice-{}", chrono::Utc::now().timestamp_millis()),
+    })
+    .to_string();
+
+    let token = config.alert_webhook_token.clone();
+    if let Err(err) = try_ws_send(url, token.as_deref(), &payload, false).await {
+        if token.as_ref().is_some() {
+            try_ws_send(url, token.as_deref(), &payload, true).await?;
+        } else {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+async fn send_ws_text_alert(config: &RuntimeConfig, url: &str, message: &str) -> Result<()> {
+    let group_id = config
+        .alert_group_id
+        .ok_or_else(|| anyhow::anyhow!("alert_group_id not configured"))?;
+    let payload = json!({
+        "action": "send_group_msg",
+        "params": {
+            "group_id": group_id,
+            "message": message,
+        },
+        "echo": format!("lattice-system-{}", chrono::Utc::now().timestamp_millis()),
     })
     .to_string();
 

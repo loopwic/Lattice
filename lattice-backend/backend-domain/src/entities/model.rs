@@ -380,8 +380,8 @@ pub struct PagedResult<T> {
 pub struct OpTokenIssueRequest {
     #[serde(default)]
     pub server_id: Option<String>,
-    pub player_uuid: String,
-    pub operator_id: String,
+    #[serde(default)]
+    pub operator_id: Option<String>,
     #[serde(default)]
     pub group_id: Option<String>,
 }
@@ -390,8 +390,16 @@ pub struct OpTokenIssueRequest {
 pub struct OpTokenIssueResponse {
     pub token: String,
     pub day: String,
-    pub player_uuid: String,
     pub expires_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OpTokenMisuseAlertRequest {
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub attempt_player_uuid: String,
+    pub attempt_player_name: String,
+    pub token_owner_uuid: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Row)]

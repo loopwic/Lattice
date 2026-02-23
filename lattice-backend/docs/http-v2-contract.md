@@ -80,21 +80,32 @@ Paging constraints:
 - `POST /v2/ops/op-token/issue`
   - body:
     - `server_id: string | null` (default `server-01`)
-    - `player_uuid: string` (32-char no-dash hex or 36-char canonical UUID)
-    - `operator_id: string` (requester ID from robot platform)
+    - `operator_id: string | null` (requester ID from robot platform, optional, for audit only)
     - `group_id: string | null` (requesting group ID)
   - access control:
-    - request is accepted when `operator_id` is in backend `op_token_admin_ids`
-    - or when `group_id` is in backend `op_token_allowed_group_ids`
-    - otherwise returns `401`
+    - `group_id` is mandatory
+    - request is accepted only when `group_id` is in backend `op_token_allowed_group_ids`
+    - otherwise returns `401` (or `400` when `group_id` missing)
   - prerequisites:
     - target server mod-config must have `op_command_token_required = true`
     - target server mod-config must have non-empty `op_command_token_secret`
   - response:
-    - `token: string` (`lattice.v1.yyyyMMdd.playerUuidNoDash.signatureHex`)
+    - `token: string` (`lattice.v2.yyyyMMdd.tokenId.signatureHex`)
     - `day: string` (`yyyyMMdd`, server local timezone)
-    - `player_uuid: string` (normalized no-dash lowercase UUID)
     - `expires_at: string` (RFC3339 timestamp of next local day `00:00`)
+  - semantics:
+    - token is not pre-bound to player on issue
+    - first in-game `/lattice token apply <token>` binds token to player UUID
+    - if another UUID applies the same token, token is revoked and misuse alert is emitted
+- `POST /v2/ops/op-token/misuse-alert`
+  - body:
+    - `server_id: string | null` (default `server-01`)
+    - `attempt_player_uuid: string` (UUID, with or without dashes)
+    - `attempt_player_name: string`
+    - `token_owner_uuid: string` (UUID, with or without dashes)
+  - behavior:
+    - sends a group warning through configured webhook channel
+    - used when mod detects cross-account token misuse
 - `GET /v2/ops/alert-target/check`
 - `GET /v2/ops/alert-deliveries?limit=<optional>`
 - `GET /v2/ops/alert-deliveries/last`
