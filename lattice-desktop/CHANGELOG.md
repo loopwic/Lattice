@@ -1,3 +1,9 @@
+## [0.2.13](https://github.com/loopwic/Lattice/compare/v0.2.12...v0.2.13) (2026-03-26)
+
+### Bug Fixes
+
+* sync lock file ([bef3303](https://github.com/loopwic/Lattice/commit/bef33037cfb5231266f3aa66caf798d1e938405c))
+
 ## [0.2.12](https://github.com/loopwic/Lattice/compare/v0.2.11...v0.2.12) (2026-02-23)
 
 ### Bug Fixes
