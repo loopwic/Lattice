@@ -417,6 +417,9 @@ export function Operations() {
     if (code === "OFFLINE_RESULT_FAILED") {
       return "离线数据扫描执行失败";
     }
+    if (code === "ALL_TARGETS_FAILED") {
+      return "所有目标解析失败";
+    }
     if (code === "SB_PARSE_FAILED") {
       return "SB 离线数据解析失败";
     }
@@ -453,6 +456,9 @@ export function Operations() {
     }
     if (code === "WORLD_RESULT_FAILED" || code === "OFFLINE_RESULT_FAILED") {
       return "建议查看后台错误日志并修复异常数据文件后重试。";
+    }
+    if (code === "ALL_TARGETS_FAILED") {
+      return "建议检查离线 NBT 数据结构与权限，修复后重试扫描。";
     }
     if (code === "WORLD_QUEUE_OVERFLOW") {
       return "建议降低扫描并发并扩大离线队列容量配置。";
